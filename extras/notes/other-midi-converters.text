@@ -1,0 +1,78 @@
+Other Command-line MIDI Converters
+Chris Ahlstrom
+2026-11-10 to 2026-11-10
+
+This document lists a few other interesting MIDI-to-whatever
+conversion programs.
+
+    midi2abc
+
+        Converts MIDI files to "abc" notation, to something as close as
+        possible to abc text format. The user then has to add text fields not
+        present in the MIDI header and possibly tidy up the abc note output.
+
+    midi2ly
+
+        Converts to the "ly" format used by LilyPond.
+
+    midicopy
+
+        Copies a selected track, channel, or time interval of a MIDI file to
+        another MIDI file.
+
+    midicsv
+
+        Converts a MIDI file to CSV (comma separated values) text that
+        is fairly easy to read.
+
+    midistats
+
+        Analyzes a MIDI file to show MIDI events and a whole set of
+        statistical information.
+
+    mftext
+
+        Dumps a MIDI file as text. Like midicsv, the text format is
+        fairly easy to read.
+
+    midicvt
+
+        This is a program we wrote awhile back based on another
+        MIDI-to-text converter that used "flex" to generate the
+        code. It shows a bit more information than "mftext".
+
+    midicvtpp
+
+        This program does everything "midicvt" does, plus it can
+        generate mappings of drums and patches and perform a few other
+        operations.
+
+    fluidsynth, timidity
+
+        These applications can convert MIDI to audio. Probably
+        everyone in the Linux world knows about them.
+
+    waon
+
+        This old program takes audio data and generates a MIDI file from
+        it. It does the inverse operation of fluidsynth and timidity.
+        It includes "pv" (phase vocoder) and "gwaon", a front end for
+        "waon" and "pv".
+
+    waonc
+
+        We updated and extended the main application of "waon", with
+        a few additional options. It includes the "pvc" phase vocoder
+        that extends "pv", but not "gwaon".
+
+-----------------------------
+
+So why did we write "mtranscript". To better support investigating MIDI
+file issues with Seq66 and "midicvt".
+
+    $ midicvt 1Bar-export.mid
+      . . .
+      ? Error at MIDI file offset 454 [0x01c6]
+      Error: Garbage at end 'readtrack(): unexpected null running status'
+
+# vim: sw=4 ts=4 wm=8 et ft=sh

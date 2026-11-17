@@ -1,0 +1,18 @@
+TO DO for Midi66 0.1
+Chris Ahlstrom
+2019-11-11 to 2026-11-17
+
+For version 0.1:
+
+    -   For meta events, allow "KeySig" (for example), to be read/written
+        instead of 0xFF 0xMM. That is, increase human readability.
+
+Fixes:
+
+    -   To do.
+
+Cannot duplicate:
+
+Backlog:
+
+# vim: sw=4 ts=4 wm=4 et ft=sh

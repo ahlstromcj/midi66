@@ -1,0 +1,72 @@
+MIDI Features to Remember to Adopt (in Seq66)
+Chris Ahlstrom
+2026-11-01 to 2026-11-01
+
+
+EOX (0xF7)
+
+    A flag to indicate the end of a SysEx transmission. A SysEx message starts
+    with F0H and continues for any number of bytes. The receiver waits for data
+    until an EOX message or any other non-Real Time status byte is received.
+
+    To avoid hanging a system, a transmitter should send a status byte
+    immediately after the end of an Exclusive transmission so the receiver can
+    return to normal operation.
+
+    Although any Status Byte (except Real-Time) will end an exclusive message,
+    an EOX should always be sent at the end of a System Exclusive message.
+
+    Real time messages may be inserted between data bytes of an Exclusive
+    message in order to maintain synchronization, and can not be used to
+    terminate an exclusive message.
+
+Real Time messages
+
+    Can be sent at any time and or inserted anywhere in a MIDI data stream,
+    including between Status and Data bytes of any other MIDI messages. Giving
+    Real-Time messages high priority allows synchronization to be maintained
+    while other operations are performed.
+
+    Most keyboard instruments do not have any use for Real-Time messages and
+    should ignore them. It is important that Real-Time messages do not
+    interrupt the Running Status buffer. A Real-Time message should not be
+    interpreted by a receiver as a new status.
+
+TIMING CLOCK (0xF8)
+
+    Clock-based MIDI systems are synchronized with this message, sent at a rate
+    of 24 per quarter note. If Timing Clocks are sent during idle time they
+    should be sent at the current tempo setting of the transmitter even while
+    it is not playing. Receivers which are slaved to incoming Real Time
+    messages (MIDI Sync mode) can thus phase lock their internal clocks while
+    waiting for a Start or Continue command.
+    
+START (0xFA)
+
+    Start is sent when a PLAY button on the master (sequencer or drum machine)
+    is pressed. This message commands all receivers slaved to incoming Real
+    Time messages (MIDI Sync mode) to start at the beginning of the song or
+    sequence.
+
+CONTINUE (0xFB)
+
+    Continue is sent when a CONTINUE button is hit. A sequence will continue
+    from its current location upon receipt of the next Timing Clock.
+
+    In MIDI Sync mode, the receipt of a Start or Continue does not start the
+    sequence until the next Timing Clock is received. The FA and F8 should be
+    sent with at least 1 millisecond time between them so the receiver has time
+    to respond. However, a receiver should be able to respond immediately to
+    the first F8H after receiving the Start or Continue.
+
+STOP (0xFC)
+
+    Stop is sent when a STOP button is hit. Playback in a receiver should stop
+    immediately.  When a master sequencer is stopped it should send out the
+    Stop message immediately, so that any other devices slaved to it will also
+    stop. The sequencer internal location should be set as it was in when Stop
+    was sent. This way, if Continue is pressed, all instruments connected to
+    the master will continue from the same point in the song without need for a
+    Song Position Pointer message.
+
+# vim: sw=4 ts=4 wm=8 et ft=sh

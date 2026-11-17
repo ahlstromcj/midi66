@@ -1,0 +1,563 @@
+#if ! defined MIDI66_MIDI_EVENTLIST_HPP
+#define MIDI66_MIDI_EVENTLIST_HPP
+
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          eventlist.hpp
+ *
+ *  This module provides a stand-alone module for the event-list container
+ *  used by the application.
+ *
+ * \library       midi66
+ * \author        Chris Ahlstrom
+ * \date          2015-09-19
+ * \updates       2026-11-09
+ * \license       GNU GPLv2 or above
+ *
+ *  This module extracts the event-list functionality from the sequencer
+ *  module, so that it is easier to try to replace it with some better
+ *  container later.
+ *
+ *  In addition, this version contains some information from the performer and
+ *  sequence classes of Seq66 that is of use in any MIDI application, so
+ *  that this library can stand along for basic MIDI operations.
+ *
+ *  List versus Map:  #if defined or derivation from an interface?  For our
+ *  purposes, #if defined might be simplest, and we only want to pick the
+ *  fastest one, ultimately.
+ *
+ *  It turns out the the std::multimap implementation is a little bit faster
+ *  in release mode, and a lot faster in debug mode.  Why?  Probably because
+ *  the std::list implementation calls std::list::sort() a lot, and the
+ *  std::multimap implementation is a lot faster at sorting.  But since the
+ *  map iterator is slower, we stick with std::list.
+ *
+ *  But, based on this article:
+ *
+ * https://baptiste-wicht.com/posts/2012/12/cpp-benchmark-vector-list-deque.html
+ *
+ *  we will now use std::vector for the event list.
+ */
+
+/**
+ *  We made some fixes for sequencer64 issue #141 to disable saving the tempo
+ *  into first track. But for Seq66, we do want to be able to save the
+ *  time signature(s) of each pattern with that pattern (especially if
+ *  different from the global time signature). Note that we would support
+ *  only one time-signature per pattern, but unlimited tempo changes.
+ *  Also note that, unlike tempo, time-signature does not affect the playback
+ *  of MIDI events. It changes how they are displayed.
+ */
+
+#undef   MIDI66_USE_FILL_TIME_SIG_AND_TEMPO
+
+/**
+ *  When recording, instead of a complete verify_and_link(), backtrack
+ *  from the latest event if it is a Note Off, and link to the previous
+ *  Note On with the same note value.
+ *
+ *  One issue is that this will cause problems on loop_reset() when recording.
+ *  Not recommended.
+ */
+
+#undef MIDI66_LINK_NEWEST_NOTE_ON_RECORD
+
+/**
+ *  The jitter_events() function is currently unused, so it is macroed out.
+ */
+
+#undef MIDI66_USE_JITTER_EVENTS
+
+
+#include <atomic>                       /* std::atomic<bool> usage          */
+
+#include "midi/event.hpp"               /* midi::event, midi::event::buffer */
+#include "midi/scales.hpp"              /* midi::scales enumeration class   */
+#include "midi/trackinfo.hpp"           /* data holders for MIDI parameters */
+
+namespace midi
+{
+
+/**
+ *  The eventlist class is a receptable for MIDI events.
+ */
+
+class eventlist
+{
+    friend class editable_events;       /* access to verify_and_link()      */
+    friend class midifile;              /* access to print()                */
+    friend class track;                 /* any_selected_notes()             */
+
+public:
+
+    /**
+     * Actions.  These variables represent actions that can be applied to a
+     * selection of notes.  One idea would be to add a swing-quantize action.
+     * We will reserve the value here, for notes only; not yet used or part of
+     * the action menu.
+     */
+
+    enum class edit
+    {
+        select_all_notes = 1,
+        select_all_events,
+        select_inverse_notes,
+        select_inverse_events,
+        quantize_notes,
+        quantize_events,
+        randomize_events,
+        tighten_events,
+        tighten_notes,
+        transpose_notes,            /* basic transpose          */
+        reserved,                   /* later: quantize_swing    */
+        transpose_harmonic,         /* harmonic transpose       */
+        expand_pattern,
+        compress_pattern,
+        select_even_notes,
+        select_odd_notes,
+        swing_notes                 /* swing quantize           */
+    };
+
+    /**
+     *  This enumeration is used in selecting events and note.  Se the
+     *  select_note_events() and select_events() functions.
+     */
+
+    enum class select
+    {
+        selecting,      /**< Selection in progress.                     */
+        select_one,     /**< To select a single event.                  */
+        selected,       /**< The events are selected.                   */
+        would_select,   /**< The events would be selected.              */
+        deselect,       /**< To deselect event under the cursor.        */
+        toggle,         /**< Toggle selection under cursor.             */
+        remove,         /**< To remove one note under the cursor.       */
+        onset,          /**< Kepler34, To select a single onset.        */
+        is_onset        /**< New, from Kepler34, onsets selected.       */
+    };
+
+private:
+
+    /**
+     *  This list holds the current pattern/sequence events.
+     *  Note that it is std::vector<event>.
+     */
+
+    midi::event::buffer m_events { };
+
+    /**
+     *  Eventually we want to be able to move through events of a given type,
+     *  such as Meta Text events.
+     */
+
+    bool m_match_iterating { false };
+    midi::event::iterator m_match_iterator { m_events.end() };
+
+    /**
+     *  Provides an atomic flag to raise while sorting(), which can invalidate
+     *  iterators while a user-interface is accessing the event list, or while
+     *  clearing the event list.
+     */
+
+    std::atomic<bool> m_action_in_progress { false };
+
+    /**
+     *  Holds the length of the sequence holding this event-list,
+     *  in pulses (ticks).  See sequence::m_length.  This value is merely the
+     *  user-specified length of the track, not the actual time-stamp of the
+     *  last event.
+     */
+
+    midi::pulse m_length { 0 };
+
+    /**
+     *  Provides the number of ticks to shave off of the end of painted notes.
+     *  Also used when the user attempts to shrink a note to zero (or less
+     *  than zero) length.
+     */
+
+    midi::pulse m_note_off_margin { 3 };
+
+    /**
+     *  A sort of snap value to use when a quantized note gets shrunk to
+     *  close to zero length. Set to 16 ticks in the constructor, but
+     *  can be changed by the owning sequence.
+     */
+
+    midi::pulse m_zero_len_correction { 16 };
+
+    /**
+     *  A flag to indicate if an event was added or removed.  We may need to
+     *  give client code a way to reload the sequence.  This is currently an
+     *  issue when a seqroll and an eventedit/eventslots are active for the
+     *  same sequence.
+     */
+
+    bool m_is_modified { false };
+
+    /**
+     *  A new flag to indicate that a tempo event has been added.  Legacy
+     *  behavior forces the tempo to be written to the track-0 sequence,
+     *  but we don't want to do that if the MIDI file (or the current event
+     *  list) contains a tempo event.
+     */
+
+    bool m_has_tempo { false };
+
+    /**
+     *  A new flag to indicate that a time-signature event has been added.
+     *  Legacy behavior forces the time-signature to be written to the track-0
+     *  sequence, but we don't want to do that if the MIDI file (or the
+     *  current event list) contains a time-signature event.
+     */
+
+    bool m_has_time_signature { false };
+
+    /**
+     *  Another flag.
+     */
+
+    bool m_has_key_signature { false };
+
+    /**
+     *  Stores the setting of usr().new_pattern_wraparound().  It is used in
+     *  the link_new() function.
+     */
+
+    bool m_link_wraparound { false };
+
+public:
+
+    eventlist ();
+    eventlist (const eventlist & rhs);                      /* = default;   */
+    eventlist (eventlist &&) = delete;
+    eventlist & operator = (const eventlist & rhs);         /* = default;   */
+    eventlist & operator = (eventlist &&) = delete;
+
+    virtual ~eventlist ()
+    {
+        // No code needed
+    }
+
+    /*
+     * These operators are used in the scales, eventlist, editable_events,
+     * and sequence classes.
+     */
+
+    midi::event::iterator begin ()
+    {
+        return m_events.begin();
+    }
+
+    midi::event::const_iterator cbegin () const
+    {
+        return m_events.cbegin();
+    }
+
+    midi::event::iterator end ()
+    {
+        return m_events.end();
+    }
+
+    midi::event::const_iterator cend () const
+    {
+        return m_events.cend();
+    }
+
+    /**
+     *  Returns the number of events stored in m_events.  We like returning
+     *  an integer instead of size_t, and rename the function so nobody is
+     *  fooled.
+     */
+
+    int count () const
+    {
+        return int(m_events.size());
+    }
+
+    size_t messages_size () const;
+    int playable_count () const;
+    bool is_playable () const;
+    midi::pulse get_min_timestamp () const;
+    midi::pulse get_max_timestamp () const;
+    bool add (const midi::event & e);
+    bool append (const midi::event & e);
+    void scan_meta_events ();
+    void print () const;
+    std::string to_string () const;
+
+    bool empty () const
+    {
+        return m_events.empty();
+    }
+
+    midi::pulse length () const
+    {
+        return m_length;
+    }
+
+    midi::pulse note_off_margin () const
+    {
+        return m_note_off_margin;
+    }
+
+    bool is_modified () const
+    {
+        return m_is_modified;
+    }
+
+    bool has_tempo () const
+    {
+        return m_has_tempo;
+    }
+
+    bool has_time_signature () const
+    {
+        return m_has_time_signature;
+    }
+
+    bool has_key_signature () const
+    {
+        return m_has_key_signature;
+    }
+
+    /**
+     * \setter m_is_modified
+     *      This function may be needed by some of the sequence editors.
+     *      But use it with great caution.
+     */
+
+    void unmodify ()
+    {
+        m_is_modified = false;
+    }
+
+    /**
+     *  Provides a wrapper for the iterator form of erase(), which is the
+     *  only one that sequence uses.  Currently, no check on removal is
+     *  performered.  Sets the modified-flag.
+     *
+     * \param ie
+     *      Provides the iterator to the event to be removed.
+     *
+     * \return
+     *      Returns an iterator to the next element, or end() if the container
+     *      is now empty.
+     */
+
+    midi::event::iterator remove (midi::event::iterator ie)
+    {
+        midi::event::iterator result { m_events.erase(ie) };
+        m_is_modified = true;
+        return result;
+    }
+
+    void clear ();
+    void sort ();
+    bool merge (const eventlist & el, bool presort = true);
+    int count_selected_notes () const;
+    bool any_selected_notes () const;
+    int count_selected_events (midi::byte status, midi::byte cc) const;
+    bool any_selected_events () const;
+    bool any_selected_events (midi::byte status, midi::byte cc) const;
+
+    bool action_in_progress () const
+    {
+        return m_action_in_progress;
+    }
+
+    /**
+     *  Dereference access for list or map.
+     *
+     * \param ie
+     *      Provides the iterator to the event to which to get a reference.
+     */
+
+    static midi::event & dref (midi::event::iterator ie)
+    {
+        return *ie;
+    }
+
+    /**
+     *  Dereference const access for list or map.
+     *
+     * \param ie
+     *      Provides the iterator to the event to which to get a reference.
+     */
+
+    static const midi::event & cdref (midi::event::const_iterator ie)
+    {
+        return *ie;
+    }
+
+private:                                /* internal quantization functions  */
+
+    bool add (midi::event::buffer & evlist, const midi::event & e);
+    void merge (const midi::event::buffer & evlist);
+
+private:                                /* functions for friend sequence    */
+
+    /*
+     * The following functions provide internal for-loops that do not
+     * involved data from the caller.
+     */
+
+    bool link_new (bool wrap = false);
+    bool link_notes (midi::event::iterator eon, midi::event::iterator eoff);
+    bool clear_links ();
+#if defined MIDI66_LINK_TEMPOS
+    void link_tempos ();
+    void clear_tempo_links ();
+#endif
+#if defined MIDI66_LINK_NEWEST_NOTE_ON_RECORD
+    void link_new_note ();
+#endif
+    int note_count () const;
+    bool first_notes (midi::pulse & ts, int & n, midi::pulse snap = 0) const;
+#if defined MIDI66_USE_FILL_TIME_SIG_AND_TEMPO
+    void scan_meta_events ();
+#endif
+    bool verify_and_link (midi::pulse slength = 0, bool wrap = false);
+    bool edge_fix (midi::pulse snap, midi::pulse seqlength);
+    bool remove_unlinked_notes ();
+    bool quantize_events
+    (
+        midi::byte status, midi::byte cc, int snap,
+        int divide, bool fixlink
+    );
+    bool quantize_events (int snap, int divide, bool all = false);
+    bool quantize_notes (int snap, int divide, bool all = false);
+    midi::pulse adjust_timestamp (midi::event & er, midi::pulse deltatick);
+    void scale_note_off (midi::event & noteoff, double factor);
+    midi::pulse apply_time_factor
+    (
+        double factor,
+        bool savenotelength = false,
+        bool relink = false
+    );
+    bool reverse_events (bool inplace = false, bool relink = false);
+    bool move_selected_notes (midi::pulse delta_tick, int delta_note);
+    bool move_selected_events (midi::pulse delta_tick);
+    bool align_left (bool relink = false);
+    bool align_right (bool relink = false);
+    bool randomize (midi::byte statusbyte, int range, bool all = false);
+    bool randomize_note_velocities (int range, bool all = false);
+    bool randomize_note_pitches
+    (
+        int range, scales s, keys keyofpattern, bool all = false
+    );
+#if defined MIDI66_USE_JITTER_EVENTS
+    bool jitter_events (int snap, int jitr);
+#endif
+    bool jitter_notes (int snap, int jitr, bool all = false);
+    bool mark_selected ();
+    bool mark_out_of_range (midi::pulse slength);
+#if defined MIDI66_MARK_ALL
+    void mark_all ();
+    void unmark_all ();
+#endif
+    bool remove_event (midi::event & e);
+    midi::event::iterator find_first_match
+    (
+        const midi::event & e,
+        midi::pulse starttick = 0
+    );
+    midi::event::iterator find_next_match (const midi::event & e);
+    bool remove_time_signature (midi::pulse target);
+    bool remove_first_match
+    (
+        const midi::event & e,
+        midi::pulse starttick = 0
+    );
+    bool remove_marked ();                  /* deprecated   */
+    bool remove_trailing_events (midi::pulse limit);
+    bool remove_selected ();
+#if defined MIDI66_SUPPORT_PAINTED_EVENTS
+    void unpaint_all ();
+#endif
+    void select_all ();
+    void select_by_channel (int channel);
+    void select_notes_by_channel (int channel);
+    bool set_channels (int channel);
+    void unselect_all ();
+    int select_events
+    (
+        midi::pulse tick_s, midi::pulse tick_f,
+        midi::byte bstatus, midi::byte cc, select action
+    );
+    int select_event_handle
+    (
+        midi::pulse tick_s, midi::pulse tick_f,
+        midi::byte bstatus, midi::byte cc,
+        midi::byte data
+    );
+    int select_note_events
+    (
+        midi::pulse tick_s, int note_h,
+        midi::pulse tick_f, int note_l, select action
+    );
+    bool event_in_range
+    (
+        const midi::event & e, midi::byte btatus,
+        midi::pulse tick_s, midi::pulse tick_f
+    ) const;
+    bool get_selected_events_interval
+    (
+        midi::pulse & first, midi::pulse & last
+    ) const;
+    bool rescale (midi::ppqn oldppqn, midi::ppqn newppqn);
+    bool stretch_selected (midi::pulse delta);
+    bool grow_selected (midi::pulse delta, int snap);
+    bool copy_selected (eventlist & clipbd);
+    bool paste_selected (eventlist & clipbd, midi::pulse tick, int note);
+    midi::pulse trim_timestamp (midi::pulse t) const;
+    midi::pulse clip_timestamp
+    (
+        midi::pulse ontime, midi::pulse offtime, int snap
+    ) const;
+    void print_notes (const std::string & tag = "in list") const;
+
+    const midi::event::buffer & events () const
+    {
+        return m_events;
+    }
+
+    void length (midi::pulse len)
+    {
+        if (len > 0)
+            m_length = len;
+    }
+
+    void zero_len_correction (midi::pulse zlc)
+    {
+        m_zero_len_correction = zlc;
+    }
+
+};          // class eventlist
+
+}           // namespace midi
+
+#endif      // MIDI66_MIDI_EVENTLIST_HPP
+
+/*
+ * eventlist.hpp
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=cpp
+ */

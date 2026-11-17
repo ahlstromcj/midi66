@@ -1,0 +1,31 @@
+NEWS for Midi66 0.1.0
+Chris Ahlstrom
+2024-04-15 to 2026-11-17
+
+Version 0.2.0 is a heavy refactoring of the original code. Beware.
+This revision now works for ALSA and JACK MIDI and MIDI Clock I/O.
+
+# Changelog
+
+## [0.1.0] - 2025-10-17
+
+    This first version is somewhat complete, and usable/installable.
+    See the README.md for details and the TODO for the next changes.
+
+### Added
+
+- None.
+
+### Fixed
+
+- None.
+
+### Changed
+
+- None.
+
+### Removed
+
+- None.
+
+# vim: sw=4 ts=4 wm=4 et ft=markdown

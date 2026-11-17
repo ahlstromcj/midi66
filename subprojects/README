@@ -1,0 +1,9 @@
+Midi66 Subprojects Directory
+Chris Ahlstrom
+2024-03-18 to 2026-11-17
+
+The "subprojects" directory shall support usage of the potext, lib66,
+cfg66, and perhaps the xpc66 libraries. These are all incorporated as Meson
+subprojects obtained from GitHub.
+
+# vim: sw=4 ts=4 wm=8 et ft=sh

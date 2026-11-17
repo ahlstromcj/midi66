@@ -1,0 +1,411 @@
+#if ! defined MIDI66_MIDI_MESSAGE_HPP
+#define MIDI66_MIDI_MESSAGE_HPP
+
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          message.hpp
+ *
+ *      A type for holding the rew data of a MIDI message.
+ *
+ * \library       midi66 application
+ * \author        Gary P. Scavone; refactoring by Chris Ahlstrom
+ * \date          2016-11-20
+ * \updates       2026-10-26
+ * \license       See above.
+ *
+ *  Should we add operator [] for setting as well?
+ *
+ *  See the cpp module for more information.
+ */
+
+#include <vector>                       /* std::vector container            */
+
+#include "midi/midi_build_macros.h"     /* various MIDI66_xxx macros        */
+#include "midi/eventcodes.hpp"          /* midi::byte, event status codes   */
+
+namespace midi
+{
+
+/**
+ *  Provides a handy capsule for a MIDI message, based on the
+ *  std::vector<unsigned char> data type from the RtMidi project.
+ *  See the cpp file's banner.
+ */
+
+class message
+{
+
+public:
+
+    /**
+     *  Holds the data of the MIDI message.  Callers should use
+     *  the message accessors rather than using the vector directly.
+     *  Bytes are added by the push() function, and are safely accessed
+     *  (with bounds-checking) by operator [].
+     *
+     *      using container = std::vector<midi::byte>;
+     */
+
+    using container = midi::bytes;
+
+private:
+
+#if defined PLATFORM_DEBUG
+
+    /**
+     *  Provide a static counter to keep track of events. Currently needed
+     *  only for trouble-shooting.  We don't care about wraparound.
+     */
+
+    static unsigned sm_msg_number;
+
+    /**
+     *  Provides the message counter value when this event was created.
+     */
+
+    unsigned m_msg_number { 0 };
+
+#endif
+
+    /**
+     *  Holds the (optional) timestamp of the MIDI message.  Holds the
+     *  timestamp of the MIDI message. It can also hold a JACK frame
+     *  number. The caller can know this only by context at present.
+     */
+
+    double m_time_stamp { 0.0 };
+
+    /**
+     *  Holds the event status, length (for events supporting that)
+     *  and data bytes.
+     */
+
+    container m_bytes { };
+
+#if defined MIDI66_USE_MESSAGE_HEADER_SIZE
+
+    /**
+     *  Indicates the number of bytes devoted to status, meta-type (if
+     *  applicable), and the varinum length. Useful in accessing the
+     *  data itself. For non-meta, non-sysex events, this should be 0.
+     */
+
+    size_t m_header_size { 0 };
+
+#endif
+
+    /**
+     *  In order to be able to handle MIDI channel-splitting of an SMF 0 file,
+     *  we need to store the channel, even if we override it when playing the
+     *  MIDI data.
+     *
+     *  Overload:  For Meta events, where is_meta() is true, this value holds
+     *  the type of Meta event. See the editable_event::sm_meta_event_names[]
+     *  array.
+     */
+
+    midi::byte m_channel { null_channel() };
+
+    /**
+     *  For use in a new get_message() function, we want to log the
+     *  buss index for the buss on which the event came in.
+     */
+
+    int m_midi_buss { c_bussbyte_max };         /* e.g. 0xFF */
+
+    /**
+     *  For use in a new get_message() function. For ALSA, it is an
+     *  unsigned char snd_seq_event_type_t value. The maximum value
+     *  is SND_SEQ_EVENT_NONE = 0xFF.
+     */
+
+    unsigned m_midi_event_type { 0xFF };
+
+public:
+
+    message (double ts = 0.0);
+    message (midi::byte b);
+    message (const midi::byte * mbs, std::size_t sz);
+    message (const midi::bytes & mbs);
+    message (const message & rhs) = default;
+    message (message &&) = default;
+    message & operator = (const message & rhs) = default;
+    message & operator = (message &&) = default;
+    ~message () = default;
+
+    void set_basic_message
+    (
+        midi::pulse tstamp,
+        midi::byte evstatus,
+        midi::byte d0
+    );
+    void set_basic_message
+    (
+        midi::pulse tstamp,
+        midi::byte evstatus,
+        midi::byte d0,
+        midi::byte d1
+    );
+
+    /**
+     *  Unlike std::map::operator [], the vector version never adds an entry
+     *  if the index/key is out of range.  The behavior is supposed to be
+     *  undefined, but here we simply return a 0 byte if the index is bad.
+     */
+
+    midi::byte & operator [] (size_t i)
+    {
+        static midi::byte s_zero = { 0 };
+        return i < m_bytes.size() ? m_bytes[i] : s_zero ;
+    }
+
+    const midi::byte & operator [] (size_t i) const
+    {
+        static midi::byte s_zero = { 0 };
+        return i < m_bytes.size() ? m_bytes[i] : s_zero ;
+    }
+
+#if defined MIDI66_USE_MESSAGE_HEADER_SIZE
+
+    /**
+     *  The next two functions are useful in sending MIDI data.
+     */
+
+    const midi::byte * data_bytes () const
+    {
+        return m_bytes.data() + size_t(header_size());
+    }
+
+    int data_byte_count () const
+    {
+        return int(m_bytes.size() - header_size());
+    }
+
+    size_t header_size () const
+    {
+        return m_header_size;
+    }
+
+    /**
+     *  Call this when getting meta/sysex data bytes.
+     */
+
+    void log_header_size ()
+    {
+        m_header_size = m_bytes.size();
+    }
+
+#endif
+
+    midi::bytes & event_bytes ()
+    {
+        return m_bytes;
+    }
+
+    const midi::bytes & event_bytes () const
+    {
+        return m_bytes;
+    }
+
+    const midi::byte * data_ptr () const
+    {
+        return m_bytes.data();
+    }
+
+    size_t size () const
+    {
+        return m_bytes.size();
+    }
+
+    size_t event_byte_count () const
+    {
+        return m_bytes.size();
+    }
+
+    int count () const
+    {
+        return int(size());
+    }
+
+#if defined PLATFORM_DEBUG
+
+    unsigned msg_number () const
+    {
+        return m_msg_number;
+    }
+
+#endif
+
+    void clear ()
+    {
+        m_bytes.clear();
+    }
+
+    bool empty () const
+    {
+        return m_bytes.empty();
+    }
+
+    void push (midi::byte b)
+    {
+        m_bytes.push_back(b);
+    }
+
+    void push (midi::status s)
+    {
+        midi::byte b = midi::to_byte(s);
+        m_bytes.push_back(b);
+    }
+
+    void push (midi::meta m)
+    {
+        midi::byte b = midi::to_byte(m);
+        m_bytes.push_back(b);
+    }
+
+    void push (midi::ctrl c)
+    {
+        midi::byte b = midi::to_byte(c);
+        m_bytes.push_back(b);
+    }
+
+    /*
+     *  Beginning and ending must point to the same buffer for these next
+     *  two functions.
+     *
+     *  They are used only in midi_alsa.cpp, though.
+     */
+
+    void assign (midi::byte * beginning, midi::byte * ending)
+    {
+        m_bytes.assign(beginning, ending);
+    }
+
+    void append (midi::byte * beginning, midi::byte * ending)
+    {
+        m_bytes.insert(m_bytes.end(), beginning, ending);
+    }
+
+    void assign (midi::bytes & b, size_t sz = 0)
+    {
+        if (sz == 0)
+            sz = b.size();
+
+        m_bytes.assign(b.begin(), b.begin() + sz);
+    }
+
+    void resize (int len)
+    {
+        m_bytes.resize(size_t(len));
+    }
+
+    midi::byte front () const
+    {
+        return m_bytes.front();
+    }
+
+    midi::byte back () const
+    {
+        return m_bytes.back();
+    }
+
+    midi::pulse time_stamp () const
+    {
+        return midi::pulse(m_time_stamp);
+    }
+
+    void time_stamp (midi::pulse ts)
+    {
+        m_time_stamp = double(ts);      /* MIDI timestamps will alway fit   */
+    }
+
+    double jack_stamp () const
+    {
+        return m_time_stamp;
+    }
+
+    void jack_stamp (double t)
+    {
+        m_time_stamp = t;
+    }
+
+    midi::byte channel () const
+    {
+        return m_channel;
+    }
+
+    int midi_buss () const
+    {
+        return m_midi_buss;
+    }
+
+    void midi_buss (int b)
+    {
+        m_midi_buss = b;
+    }
+
+    unsigned midi_event_type () const
+    {
+        return m_midi_event_type;
+    }
+
+    void midi_event_type (unsigned t)
+    {
+        m_midi_event_type = t;
+    }
+
+    bool is_sysex () const
+    {
+        return m_bytes.size() > 0 ? midi::is_sysex_msg(m_bytes[0]) : false ;
+    }
+
+    midi::byte status () const
+    {
+        return event_byte_count() > 0 ? m_bytes[0] : 0 ;
+    }
+
+    bool append_sysex (const midi::bytes & data, size_t dsize = 0);
+    bool append_sysex (const midi::byte * data, size_t dsize);
+    std::string to_string () const;
+
+};          // class message
+
+/**
+ *  MIDI caller callback function type definition.  The timestamp parameter
+ *  has been folded into the message class (a wrapper for
+ *  std::vector<unsigned char>), and the pointer has been replaced by a
+ *  reference.
+ */
+
+using rt_midi_callback_t = void (*)
+(
+    message & msg,              /* includes the timestamp already */
+    void * userdata
+);
+
+}           // namespace midi
+
+#endif      // MIDI66_MIDI_MESSAGE_HPP
+
+/*
+ * message.hpp
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=cpp
+ */

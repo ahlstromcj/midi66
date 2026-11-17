@@ -1,0 +1,2622 @@
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          calculations.cpp
+ *
+ *  This module declares/defines some utility functions and calculations
+ *  needed by this application.
+ *
+ * \library       midi66 application
+ * \author        Chris Ahlstrom
+ * \date          2015-11-07
+ * \updates       2026-11-01
+ * \license       GNU GPLv2 or above
+ *
+ *  This code was moved from the globals module so that other modules
+ *  can include it only if they need it.
+ *
+ *  To convert the ticks for each MIDI note into a millisecond value to
+ *  display the notes visually along a timeline, one needs to use the division
+ *  and the tempo to determine the value of an individual tick.  That
+ *  conversion looks like:
+ *
+\verbatim
+        1 min    60 sec   1 beat     Z clocks
+       ------- * ------ * -------- * -------- = seconds
+       X beats   1 min    Y clocks       1
+\endverbatim
+ *
+ *  X is the tempo (beats per minute, or BPM), Y is the division (pulses per
+ *  quarter note, PPQN), and Z is the number of clocks from the incoming
+ *  event. All of the units cancel out, yielding a value in seconds. The
+ *  condensed version of that conversion is therefore:
+ *
+\verbatim
+        (60 * Z) / (X * Y) = seconds
+        seconds = 60 * clocks / (bpm * ppqn)
+\endverbatim
+ *
+ *  The value given here in seconds is the number of seconds since the
+ *  previous MIDI event, not from the sequence start.  One needs to keep a
+ *  running total of this value to construct a coherent sequence.  Especially
+ *  important if the MIDI file contains tempo changes.  Leaving the clocks (Z)
+ *  out of the equation yields the periodicity of the clock.
+ *
+ *  The inverse calculation is:
+ *
+\verbatim
+        clocks = seconds * bpm * ppqn / 60
+\endverbatim
+ *
+ * \todo
+ *      There are additional user-interface and MIDI scaling variables in the
+ *      perfroll module that we need to move here.
+ */
+
+/*
+ *  Because M_PI is not part of the standard ANSI C/C++ libraries, but
+ *  rather a POSIX standard that it requires specific setup depending
+ *  on the language.  In C and C++: define _USE_MATH_DEFINES before
+ *  including the math libraries to define the macro.
+ */
+
+#define _USE_MATH_DEFINES
+
+#include <cctype>                       /* std::isspace(), std::isdigit()   */
+#include <cmath>                        /* std::floor(), std::log()         */
+#include <cstdlib>                      /* std::atoi(), std::strtol()       */
+#include <cstring>                      /* std::memset()                    */
+#include <ctime>                        /* std::strftime()                  */
+
+#include "midi/calculations.hpp"        /* MIDI-related calculations        */
+#include "midi/eventcodes.hpp"          /* functions to analyze MIDI bytes  */
+#include "util/strfunctions.hpp"        /* util::string_to_long()           */
+
+#if defined MIDI66_USE_UNIFORM_INT_DISTRIBUTION
+#include <random>                       /* std::uniform_int_distribution    */
+#endif
+
+namespace midi
+{
+
+/**
+ *  This value represents the fundamental and default beats-per-bar.
+ *
+ *  Currently unused.
+ *
+ *      static const int c_qn_beats { 4 };
+ */
+
+/**
+ *  Rigorously convert an unsigned character to an integer as per MIDI.
+ */
+
+int
+byte_to_int (midi::byte b)
+{
+    bool negative { (b & 0x80) != 0 };
+    int result { int(b & 0x7F) };
+    if (negative)
+        result = -result;
+
+    return result;
+}
+
+midi::byte
+int_to_byte (int v)
+{
+    midi::byte result { midi::byte(v < 0 ? 0x80 : 0x00) };
+    result += v & 0x7F;
+    return result;
+}
+
+/**
+ *  Extracts up to 4 numbers from a colon-delimited string.
+ *
+ *      -   measures : beats : divisions
+ *          -   "8" represents solely the number of pulses.  That is, if the
+ *              user enters a single number, it is treated as the number of
+ *              pulses.
+ *          -   "8:1" represents a measure and a beat.
+ *          -   "213:4:920"  represents a measure, a beat, and pulses.
+ *      -   hours : minutes : seconds . fraction.  We really don't support
+ *          this concept at present.  Beware!
+ *          -   "2:04:12.14"
+ *          -   "0:1:2"
+ *
+ * \warning
+ *      This is not the most efficient implementation you'll ever see.
+ *      At some point we will tighten it up.  This function is tested in the
+ *      midi66-tests project, in the "calculations_unit_test" module.
+ *      At present this test is surely BROKEN!
+ *
+ * \param s
+ *      Provides the input time string, in measures or time format,
+ *      to be processed.
+ *
+ * \param [out] part_1
+ *      The destination reference for the first part of the time.
+ *      In some contexts, this number alone is a pulse (ticks) value;
+ *      in other contexts, it is a measures value.
+ *
+ * \param [out] part_2
+ *      The destination reference for the second part of the time.
+ *
+ * \param [out] part_3
+ *      The destination reference for the third part of the time.
+ *
+ * \param [out] fraction
+ *      The destination reference for the fractional part of the time.
+ *
+ * \return
+ *      Returns the number of parts provided, ranging from 0 to 4.
+ *      If 0, there is an error. If 1, it is assumed to be an single number,
+ *      such as 768.
+ */
+
+int
+extract_timing_numbers
+(
+    const std::string & s,
+    int & part_1,
+    int & part_2,
+    int & part_3,
+    double & fraction
+)
+{
+    lib66::tokenization tokens;
+    int count { tokenize_time_string(s, tokens) };
+    std::string p1 { "0" };
+    std::string p2 { "0" };
+    std::string p3 { "0" };
+    std::string f { ".0" };
+    if (count > 0)
+    {
+        bool hasfraction { s.find_first_of(".") != std::string::npos};
+        switch (count)
+        {
+        case 1:
+
+            if (hasfraction)
+                f = tokens[0];
+            else
+                p3 = tokens[0];
+            break;
+
+        case 2:
+
+            if (hasfraction)
+            {
+                p3 = tokens[0];
+                f = tokens[1];
+            }
+            else
+            {
+                p2 = tokens[0];
+                p3 = tokens[1];
+            }
+            break;
+
+        case 3:
+
+            if (hasfraction)
+            {
+                p2 = tokens[0];
+                p3 = tokens[1];
+                f = tokens[2];
+            }
+            else
+            {
+                p1 = tokens[0];
+                p2 = tokens[1];
+                p3 = tokens[2];
+            }
+            break;
+
+        case 4:
+
+            p1 = tokens[0];
+            p2 = tokens[1];
+            p3 = tokens[2];
+            f = tokens[3];
+            break;
+        }
+        part_1 = std::stoi(p1);
+        part_2 = std::stoi(p2);
+        part_3 = std::stoi(p3);
+        fraction = f[0] == '.' ? std::stod(f) : 0.0 ;
+    }
+    return count;
+}
+
+/**
+ *  Tokenizes a string using the colon, space, or period as delimiters.  They
+ *  are treated equally, and the caller must determine what to do with the
+ *  parts.  Here are the steps:
+ *
+ *      -#  Skip any delimiters found at the beginning.  The position will
+ *          either exist, or there will be nothing to parse.
+ *      -#  Get to the next delimiter.  This will exist, or not.  Get all
+ *          non-delimiters until the next delimiter or the end of the string.
+ *      -#  Repeat until no more delimiters exist.
+ *
+ *  Compare this function to tokenize() in the util/strfunctions module.
+ *
+ * \param source
+ *      The string to be parsed and tokenized.
+ *
+ * \param tokens
+ *      Provides a vector into which to push the tokens.
+ *
+ * \return
+ *      Returns the number of tokens pushed (i.e. the final size of the tokens
+ *      vector).
+ */
+
+int
+tokenize_time_string
+(
+    const std::string & source,
+    lib66::tokenization & tokens
+)
+{
+    int result { 0 };
+    tokens.clear();
+    lib66::tokenization temp { util::tokenize(source, ":") };
+    if (! temp.empty())
+    {
+        std::string t { temp.back() };                          /* last one */
+        auto ppos { t.find_first_of(".") };
+        if (ppos != std::string::npos)                          /* "01.58"  */
+        {
+            std::size_t count { ppos - 1 };
+            std::string u { t.substr(0, count) };               /* "01"     */
+            std::string v { t.substr(ppos) };                   /* ".58"    */
+            t = u;
+            temp.push_back(v);
+        }
+        result = int(temp.size());
+        tokens = temp;
+#if defined PLATFORM_DEBUG_TMI
+        if (result > 0)
+        {
+            printf("Tokens:");
+            for (auto t : temp)
+                printf(" '%s'", t.c_str());
+
+            printf("\n");
+        }
+#endif
+    }
+    return result;
+}
+
+/**
+ *  Converts MIDI pulses (also known as ticks, clocks, or divisions) into a
+ *  string.
+ *
+ * \param p
+ *      The MIDI pulse/tick value to be converted.
+ *
+ * \return
+ *      Returns the string as an unsigned ASCII integer number.
+ */
+
+std::string
+pulses_to_string (pulse p)
+{
+    char tmp[32];
+    snprintf(tmp, sizeof tmp, "%lu", (unsigned long)(p));
+    return std::string(tmp);
+}
+
+/**
+ *  Converts a MIDI pulse/ticks/clock value into a string that represents
+ *  "measures:beats:ticks" ("measures:beats:division").
+ *
+ * \param p
+ *      The number of MIDI pulses (clocks, divisions, ticks, you name it) to
+ *      be converted.  If the value is c_null_pulse, it is converted
+ *      to 0, because callers don't generally worry about such niceties, and
+ *      the least we can do is convert illegal measure-strings (like
+ *      "000:0:000") to a legal value.
+ *
+ * \param seqparms
+ *      This small structure provides the beats/measure, beat-width, and PPQN
+ *      that hold for the sequence involved in this calculation.  These values
+ *      are needed in the calculations.
+ *
+ * \return
+ *      Returns the string, in measures notation, for the absolute pulses that
+ *      mark this duration.
+ */
+
+std::string
+pulses_to_measurestring (midi::pulse p, const midi::timing & seqparms)
+{
+    midi::measures m;                               /* bars, beats, ticks   */
+    char tmp[32];
+    int width { 3 };
+    if (is_null_pulse(p))
+    {
+        p = 0;                                      /* punt the runt!       */
+    }
+    else if (seqparms.PPQN() >= 1000)
+    {
+        if (seqparms.PPQN() < 10000)
+            width = 4;
+        else if (seqparms.PPQN() < 32000)           /* PPQN() is a short    */
+            width = 5;
+    }
+    pulses_to_midi_measures(p, seqparms, m);        /* fill measures struct */
+    snprintf
+    (
+        tmp, sizeof tmp, "%03d:%d:%0*d",            /* "%03d:%d:%03d"       */
+        m.bars(), m.beats(), width, m.divisions()   /* divisions vs ticks   */
+    );
+    return std::string(tmp);
+}
+
+/**
+ *  Converts a MIDI pulse/ticks/clock value into a string that represents
+ *  "measures:beats:ticks" ("measures:beats:division").
+ *
+\verbatim
+        m = p * W / (4 * P * B)
+\endverbatim
+ *
+ * \param p
+ *      Provides the MIDI pulses (as in "pulses per quarter note") that are to
+ *      be converted to MIDI measures format.
+ *
+ * \param seqparms
+ *      This small structure provides the beats/measure (B), beat-width (W),
+ *      and PPQN (P) that hold for the sequence involved in this calculation.
+ *      The beats/minute (T for tempo) value is not needed.
+ *
+ * \param [out] measures
+ *      Provides the current MIDI song time structure to hold the results,
+ *      which are the measures, beats, and divisions values for the time of
+ *      interest.  Note that the measures and beats are corrected to be re 1,
+ *      not 0.
+ *
+ * \return
+ *      Returns true if the calculations were able to be made.  The P, B, and
+ *      W values all need to be greater than 0.
+ */
+
+bool
+pulses_to_midi_measures
+(
+    midi::pulse p,
+    const midi::timing & seqparms,
+    midi::measures & bars
+)
+{
+    int W { seqparms.beat_width() };
+    int P { seqparms.PPQN() };
+    int B { seqparms.beats_per_measure() };
+    bool result { (W > 0) && (P > 0) && (B > 0) };
+    if (result)
+    {
+        double qnotes { double(qn_beats()) * B / W };   /* Q notes/measure  */
+        double measlength { P * qnotes };               /* pulses/measure   */
+        int beatticks { int(measlength / B) };          /* pulses/beat      */
+        int m { int(p / measlength) + 1 };              /* pulse measure #  */
+        int metro { int(1 + ((p * W / P / qn_beats()) % B)) };
+        bars.bars(m);                                   /* # of measures    */
+        bars.beats(metro);                              /* beats in measure */
+        bars.divisions(int(p % beatticks));             /* leftover pulses  */
+    }
+    return result;
+}
+
+/**
+ *  Function used in sequence::analyze_time_signatures() to precalculate
+ *  the size of each time-signature (sequence::timesig) segment.
+ *
+ *  Compare this function to ticks_to_measures(), which returns an
+ *  integer. Also, in measures_to_ticks() the formula is:
+ *
+\verbatim
+            p = 4 * P * M * B / W
+\endverbatim
+ *
+ *  Solving for M:
+ *
+\verbatim
+            M = p * W / (4 * P * B)
+\endverbatim
+ *
+ * \param p
+ *      Provides either the time in ticks (pulses), or the duration of a
+ *      timesig segment.
+ *
+ * \param P
+ *      The PPQN in force for this calculation. Must be greater than 0.
+ *
+ * \param B
+ *      The beats/measure in force for this calculation. Must be greater
+ *      than 0.
+ *
+ * \param W
+ *      The beat width in force for this calculation. Must be greater
+ *      than 0.
+ *
+ * \return
+ *      If the parameters are valid, returns the measure count or size
+ *      as a floating-point value.  The caller is responsible for any
+ *      rounding.  If parameters are invalid, 0.0 is returned.
+ */
+
+double
+pulses_to_measures
+(
+    midi::pulse p,                                  /* time or duration     */
+    int P,                                          /* PPQN                 */
+    int B,                                          /* beats per measure    */
+    int W                                           /* beat width           */
+)
+{
+    double result { 0.0 };                          /* indicates an error   */
+    bool ok { (W > 0) && (P > 0) && (B > 0) };
+    if (ok)
+    {
+        double divisor { double(qn_beats()) * P * B };
+        return double(p) * W / divisor;
+    }
+    return result;
+}
+
+/**
+ *  Converts a MIDI pulse/ticks/clock value into a string that represents
+ *  "hours:minutes:seconds.fraction".  See the other pulses_to_time_string()
+ *  overload.
+ *
+ * \param p
+ *      Provides the number of ticks, pulses, or divisions in the MIDI
+ *      event time.
+ *
+ * \param timinginfo
+ *      Provides the tempo of the song, in beats/minute, and the
+ *      pulse-per-quarter-note of the song.
+ *
+ * \return
+ *      Returns the return-value of the other pulses_to_time_string() function.
+ */
+
+std::string
+pulses_to_time_string (midi::pulse p, const midi::timing & timinginfo)
+{
+    return pulses_to_time_string
+    (
+        p, timinginfo.BPM(), timinginfo.PPQN()
+    );
+}
+
+/**
+ *  Converts a MIDI pulse/ticks/clock value into a string that represents
+ *  "hours:minutes:seconds.fraction".  If the fraction part is 0, then it is
+ *  not shown.  Examples:
+ *
+ *      -   "0:0:0"
+ *      -   "0:0:0.102333"
+ *      -   "12:3:1"
+ *      -   "12:3:1.000001"
+ *
+ * \param p
+ *      Provides the number of ticks, pulses, or divisions in the MIDI
+ *      event time.
+ *
+ * \param bpm
+ *      Provides the tempo of the song, in beats/minute.
+ *
+ * \param ppq
+ *      Provides the pulses-per-quarter-note of the song.
+ *
+ * \param showus
+ *      If true (the default), shows the microseconds as well.  Hours are now
+ *      shown only if greater than zero.
+ *
+ * \return
+ *      Returns the time-string representation of the pulse (ticks) value.
+ */
+
+std::string
+pulses_to_time_string
+(
+    midi::pulse p,
+    midi::bpm bp,
+    midi::ppqn ppq,
+    bool showus
+)
+{
+    unsigned long microseconds
+    {
+        (unsigned long) (ticks_to_delta_time_us(p, bp, ppq))
+    };
+    int seconds { int(microseconds / 1000000UL) };
+    int minutes { seconds / 60 };
+    int hours { seconds / (60 * 60) };
+    int hoursecs { hours * 60 * 60 };
+    int minutesecs { minutes * 60 };
+    minutes -= hours * 60;
+    seconds -= hoursecs + minutesecs;
+
+    char tmp[48];
+    if (showus)
+    {
+        microseconds -= (hoursecs + minutesecs + seconds) * 1000000UL;
+        microseconds /= 10000L;
+        if (hours > 0)
+        {
+            snprintf
+            (
+                tmp, sizeof tmp, "%d:%02d:%02d.%02lu",
+                hours, minutes, seconds, microseconds
+            );
+        }
+        else
+        {
+            snprintf
+            (
+                tmp, sizeof tmp, "%02d:%02d.%02lu",
+                minutes, seconds, microseconds
+            );
+        }
+    }
+    else
+    {
+        /*
+         * Why the spaces?  It is inconsistent.  But see the
+         * HMS_string_to_pulses() function first.
+         */
+
+        if (hours > 0)
+        {
+            snprintf
+            (
+                tmp, sizeof tmp, "%d:%02d:%02d   ", hours, minutes, seconds
+            );
+        }
+        else
+            snprintf(tmp, sizeof tmp, "%02d:%02d   ", minutes, seconds);
+    }
+    return std::string(tmp);
+}
+
+/**
+ *  A handy function for checking for long songs (an hour or more).
+ */
+
+int
+pulses_to_hours (midi::pulse p, midi::bpm bp, midi::ppqn ppq)
+{
+    unsigned long microseconds
+    {
+        (unsigned long) (ticks_to_delta_time_us(p, bp, ppq))
+    };
+    int seconds { int(microseconds / 1000000UL) };
+    return seconds / (60 * 60);
+}
+
+/**
+ *  This function allows clicking a UI item to get to the next time
+ *  format.
+ */
+
+timeformat
+next_time_format (timeformat current)
+{
+    if (current == timeformat::bbt)
+        current = timeformat::hms;
+    else if (current == timeformat::hms)
+        current = timeformat::ticks;
+    else if (current == timeformat::ticks)
+        current = timeformat::bbt;
+
+    return current;
+}
+
+std::string
+time_format_name (timeformat tf)
+{
+    std::string result;
+    if (tf == timeformat::bbt)
+        result = "BBT";
+    else if (tf == timeformat::hms)
+        result = "HMS";
+    else
+        result = "Ticks";
+
+    return result;
+}
+
+std::string
+time_format_string (timeformat tf, midi::pulse ts, const midi::timing & mt)
+{
+    std::string result;
+    if (tf == timeformat::bbt)
+        result = pulses_to_measurestring(ts, mt);
+    else if (tf == timeformat::hms)
+        result = pulses_to_time_string(ts, mt);
+    else if (tf == timeformat::ticks)
+        result = pulses_to_string(ts);
+
+    return result;
+}
+
+/**
+ *  Recalculates the number of measures, making sure that values less than 1.0
+ *  become 1, and that, otherwise, the measure count is either very close
+ *  (0.01) to the lower integer number, or moved up the next integer measure
+ *  value. A static function.
+ */
+
+double
+trunc_measures (double measures)
+{
+    static const double s_slop { 0.01 };    /* allows for a little slop     */
+    double result;
+    if (measures <= (1.0 + s_slop))
+    {
+        result = 1.0;
+    }
+    else
+    {
+        double truncated { std::trunc(measures) };
+        if ((measures - truncated) <= s_slop)
+            result = double(int(truncated));
+        else
+            result = double(int(truncated)) + 1.0;
+    }
+    return result;
+}
+
+/**
+ *  Converts a string that represents "measures:beats:division" (also known
+ *  as "B:B:T") to a MIDI pulse/ticks/clock value. Note that, here, "division"
+ *  is simply a number of pulses less than a beat.
+ *
+ *  If the third value (the MIDI pulses or ticks value) is set to the dollar
+ *  sign ("$"), then the pulses are set to PPQN-1, as a handy shortcut to
+ *  indicate the end of the beat. (No longer true in Seq66.)
+ *
+ * \warning
+ *      If only one number is provided, it is treated in this function like
+ *      a measures value, not a pulses value.
+ *
+ * \param measures
+ *      Provides the current MIDI song time in "measures:beats:divisions"
+ *      format, where divisions are the MIDI pulses in
+ *      "pulses-per-quarter-note".
+ *
+ * \param seqparms
+ *      This small structure provides the beats/measure, beat-width, and PPQN
+ *      that hold for the sequence involved in this calculation.
+ *
+ * \return
+ *      Returns the absolute pulses that mark this duration.  If the input
+ *      string is empty, then 0 is returned.
+ */
+
+midi::pulse
+BBT_string_to_pulses
+(
+    const std::string & measures,
+    const midi::timing & seqparms
+)
+{
+    midi::pulse result { 0 };
+    if (! measures.empty())
+    {
+        int m, b, d;
+        double dummy;
+        int valuecount { extract_timing_numbers(measures, m, b, d, dummy) };
+        if (valuecount >= 1)
+        {
+            midi::measures meas_values;         /* initializes to 0 in ctor */
+            meas_values.bars(m);                /* strtoi(m)                */
+            if (valuecount > 1)
+            {
+                meas_values.beats(b);           /* strtoi(b)                */
+                if (valuecount > 2)
+                {
+                    if (d == 0)                 /* no more support for "$"  */
+                        meas_values.divisions(seqparms.PPQN() - 1);
+                    else
+                        meas_values.divisions(d);   /* strtoi(d)            */
+                }
+            }
+            result = midi_measures_to_pulses(meas_values, seqparms);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Converts a string that represents "measures:beats:division" to a MIDI
+ *  pulse/ticks/clock value.
+ *
+ *  p = 4 * P * m * B / W
+ *      p == pulse count (ticks or pulses)
+ *      m == number of measures
+ *      B == beats per measure (constant)
+ *      P == pulses per quarter-note (constant)
+ *      W == beat width in beats per measure (constant) [NOT CORRECT]
+ *
+ *  Note that the 0-pulse MIDI measure is "1:1:0", which means "at the
+ *  beginning of the first beat of the first measure, no pulses'.  It is not
+ *  "0:0:0" as one might expect.
+ *
+ *  If we get a 0 for measures or for beats, we
+ *  treat them as if they were 1.  It is too easy for the user to mess up.
+ *
+ *  We should consider clamping the beats to the beat-width value as well.
+ *
+ *  Example: Current time-signature = 3/16. Then qn_per_beat = 4/16 = 0.25.
+ *  For 1 measure and 3 beats, the pulses are p = 1 * 3 * 0.25 * PPQN. If PPQN
+ *  is 192, the pulses per beat are 0.25 * PPQN = 48.
+ *
+ * \param measures
+ *      Provides the current MIDI song time structure holding the
+ *      measures, beats, and divisions values for the time of interest.
+ *      Note that it does not employ beat-width. It is a time position.
+ *
+ * \param seqparms
+ *      This small structure provides the beats/measure, beat-width, and PPQN
+ *      that hold for the sequence involved in this calculation.
+ *
+ * \return
+ *      Returns the absolute pulses that mark this duration.  If the
+ *      pulse-value cannot be calculated, then c_null_pulse is
+ *      returned.
+ */
+
+midi::pulse
+midi_measures_to_pulses
+(
+    const midi::measures & bars,
+    const midi::timing & seqparms
+)
+{
+    midi::pulse result { c_null_pulse };
+    int m { bars.bars() - 1 };                  /* true measure count       */
+    int b { bars.beats() - 1 };
+    if (m >= 0 && b >= 0)
+    {
+        double ppq = double(seqparms.PPQN());
+        double beats_per_bar = double(seqparms.beats_per_measure());
+        double beat_width = double(seqparms.beat_width());
+        double ticks_per_beat = pulses_per_beat(ppq, beat_width);
+        double ticks_per_meas = /* m * */ ticks_per_beat * beats_per_bar;
+        double mticks = m * ticks_per_meas;
+        mticks += b * ticks_per_beat;
+        result = midi::pulse(mticks);
+        result += bars.ticks();                 /* divisions()              */
+    }
+    else
+        result = 0;
+
+    return result;
+}
+
+/**
+ *  A new function to create a midi_measures structure from a string assumed
+ *  to have a formate of "B:B:T".  Any fractional part is ignored as being
+ *  less than a pulse.
+ */
+
+midi::measures
+string_to_measures (const std::string & bbt)
+{
+    int m;
+    int b;
+    int t;
+    double fraction;
+    int count { extract_timing_numbers(bbt, m, b, t, fraction) };
+    if (count > 0)
+    {
+        int meas { m };
+        int beats { b };
+        int ticks { t };
+        if (meas == 0)
+            meas = 1;
+
+        if (beats == 0)
+            beats = 1;
+
+        return measures(meas, beats, ticks);
+    }
+    else
+    {
+        static midi::measures s_dummy;
+        return s_dummy;
+    }
+}
+
+/**
+ *  Converts a string that represents "hours:minutes:seconds.fraction" into a
+ *  MIDI pulse/ticks/clock value.
+ *
+ *  Let h = hours, m = minutes, s = seconds, and f = fraction of *  seconds.
+ *
+ * Duration in seconds (S):
+ *
+ *      S = 3600h + 60m + s + f
+ *
+ * Microseconds per quarter note (MPQN):
+ *
+ *      MPQN = 60,000,000 / BPM
+ *
+ * Microseconds per tick:
+ *
+ *      MPT = MPQN / PPQN
+ *
+ * Ticks (divisions, pulses):
+ *
+ *      D = S * 1,000,000 / MPT
+ *        = S * 1,000,000 / MPQN * PPQN
+ *        = S * 1,000,000 / 60,000,000 * BPM * PPQN
+ *        = S * 0.167 * BPM * PPQN
+ *
+ * \param timestring
+ *      The time value to be converted, which must be of the form
+ *      "hh:mm:ss" or "hh:mm:ss.fraction".  That is, all four parts must
+ *      be found.
+ *
+ * \param bpm
+ *      The beats-per-minute tempo (e.g. 120) of the current MIDI song.
+ *
+ * \param ppqn
+ *      The parts-per-quarter note precision (e.g. 192) of the current MIDI
+ *      song.
+ *
+ * \return
+ *      Returns 0 if an error occurred or if the number actually translated to
+ *      0.
+ */
+
+midi::pulse
+HMS_string_to_pulses
+(
+    const std::string & timestring,
+    midi::bpm bp, midi::ppqn ppq
+)
+{
+    midi::pulse result { 0 };
+    if (! timestring.empty())
+    {
+        int sh, sm, ss;
+        double frac;
+        int count { extract_timing_numbers(timestring, sh, sm, ss, frac) };
+        if (count > 0)
+        {
+            const double bpmfactor { 1000000.0 / 60000000.0 };
+            double hours { double(sh) };
+            double minutes { double(sm) };
+            double seconds { double(ss) };
+            double sec { ((hours * 60.0) + minutes) * 60.0 + seconds + frac };
+
+            /*
+             * Instead of:
+             *
+             *      double us { 1000000.0 * sec };
+             *      double pulses = delta_time_us_to_ticks(us, bp, ppq);
+             */
+
+            double pulses { sec * bpmfactor * bp * ppq };
+            result = midi::pulse(pulses);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Converts a time string to pulses.  First, the type of string is deduced by
+ *  the characters in the string.  If the string contains two colons and a
+ *  decimal point, it is assumed to be a time-string ("hh:mm:ss.frac"); in
+ *  addition ss will have to be less than 60. ???  Actually, now we only care if
+ *  four numbers are provided.
+ *
+ *  If the string just contains two colons, then it is assumed to be a
+ *  measure-string ("measures:beats:divisions").
+ *
+ *  If it has none of the above, it is assumed to be pulses.  Testing is not
+ *  rigorous.
+ *
+ * BBT_string_to_pulses(): Converts "B:B:T" values to pulses.
+ * HMS_string_to_pulses(): Converts "H:M:S.f" values to pulses.
+ *
+ * \param s
+ *      Provides the string to convert to pulses.
+ *
+ * \param mt
+ *      Provides the structure needed to provide BPM and other values needed
+ *      for some of the conversions done by this function.
+ *
+ * \param timestring
+ *      If true, interpret the string as an "H:M:S" string.
+ *
+ * \return
+ *      Returns the string as converted to MIDI pulses (or divisions, clocks,
+ *      ticks, whatever you call it).
+ */
+
+midi::pulse
+string_to_pulses
+(
+    const std::string & s,
+    const midi::timing & mt,
+    bool timestring
+)
+{
+    lib66::tokenization tokens;
+    midi::pulse result { 0 };
+    int count { tokenize_time_string(s, tokens) };
+    if (count == 1)                                 /* no colons in it  */
+    {
+        result = midi::pulse(util::string_to_long(s));
+    }
+    else if (count > 1)
+    {
+        if (timestring)
+            result = HMS_string_to_pulses(s, mt.BPM(), mt.PPQN());
+        else
+            result = BBT_string_to_pulses(s, mt);
+    }
+    return result;
+}
+
+/**
+ *  Creates a number with a negative-to-0-to-positive range.
+ *
+ *  The first call is seeded with the current time, then a pseudo-random
+ *  number is returned.  This is a simplistic linear congruence generator. It
+ *  returns a random number between -range and + range. [Could consider using
+ *  random(3) which has a much longer periodicity.]
+ *
+ *  Another options is rand() % (2 * range + 1) + (-range + 1), but it uses
+ *  only the low-order bits of the number.
+ *
+ *  C++11 has a default random engine template, but it is a pain!
+ *
+ *  return rand() / (RAND_MAX / (2 * range + 1) + 1) - range;
+ *
+ * \param range
+ *      The amount of "randomness" desired.
+ *
+ * \return
+ *      Returns a number from -range to +range, uniformly distributed.
+ */
+
+int
+randomize (int range, int seed)
+{
+    static bool s_uninitialized { true };
+    if (s_uninitialized)
+    {
+        s_uninitialized = false;
+        if (seed == 0)
+            seed = time(NULL);
+
+        srand(unsigned(seed));
+    }
+    if (range != 0)
+    {
+        if (range < 0)
+            range = -range;
+
+        long result { (2 * range * long(rand()) / RAND_MAX) - range };
+        return int(result);
+    }
+    else
+        return 0;
+}
+
+#if defined MIDI66_USE_UNIFORM_INT_DISTRIBUTION
+
+class randomizer
+{
+private:
+
+    static const int s_upper_limit { std::numeric_limits<int>::max() };
+
+    std::random_device m_rd;    /* seed source for random number engine     */
+    std::mt19937 m_mtwister;    /* mersenne_twister_engine, maybe seeded    */
+    std::uniform_int_distribution<int> m_distribution;
+
+public:
+
+    randomizer (int seed = -1) :
+        m_rd            (),                         /* random device (opt.) */
+        m_mtwister      (m_rd()),                   /* internal generator   */
+        m_distribution  (0, s_upper_limit)          /* uniform int range    */
+    {
+        if (seed != (-1))
+            m_mtwister.seed(seed);
+    }
+
+    int generate ()
+    {
+        return m_distribution(m_mtwister);
+    }
+
+    int generate (int range)
+    {
+        int rnd { generate() };
+        long result { 2 * range * long(rnd) / long(s_upper_limit) };
+        return int(result) - range;
+    }
+
+};          // class randomizer
+
+int
+randomize_uniformly (int range, int seed)
+{
+    static bool s_uninitialized { true };
+    static randomizer * s_randomizer_pointer { nullptr };
+    if (s_uninitialized)
+    {
+        static randomizer s_randomizer(seed);   /* create it secretly   */
+        s_randomizer_pointer = &s_randomizer;   /* point to it          */
+        s_uninitialized = false;
+    }
+    if (range != 0)
+    {
+        if (range < 0)
+            range = -range;
+
+        return s_randomizer_pointer->generate(range);
+    }
+    else
+        return 0;
+}
+
+#endif
+
+/**
+ *  Returns true if a number is a power of 2.  MIDI's beatwidth values
+ *  provide the power of 2 needed for a valid beat width value.
+ *  First b in the below expression is for the case when b is 0.
+ *
+ *  Taken from:
+ *
+ * https://www.geeksforgeeks.org/c-program-to-find-whether-a-no-is-power-of-two/
+ */
+
+bool
+is_power_of_2 (int b)
+{
+    if (b <= 0)
+        return false;
+    else
+        return (b & (b - 1)) == 0;
+}
+
+/**
+ *  Calculates the log-base-2 value of a number that is already a power of 2.
+ *  Useful in converting a time signature's denominator to a Time Signature
+ *  meta event's "dd" value.
+ *
+ * \param tsd
+ *      The time signature denominator, which must be a power of 2:  2, 4, 8,
+ *      16, or 32.
+ *
+ * \return
+ *      Returns the power of 2 that achieves the \a tsd parameter value.
+ *      Returns -1 if the value is not a power of 2.
+ */
+
+int
+log2_of_power_of_2 (int tsd)
+{
+    if (is_power_of_2(tsd))
+    {
+        int result = 0;
+        while (tsd > 1)
+        {
+            ++result;
+            tsd >>= 1;
+        }
+        return result;
+    }
+    else
+        return (-1);
+}
+
+/**
+ *  A candidate to move to a zoomer class; already done in Seq66.
+ *
+ *  This function provides the size of the smallest horizontal grid unit in
+ *  units of pulses (ticks).  We need this to be able to increment grid
+ *  drawing by more than one (time-wasting!) without skipping any lines.
+ *
+ *  The smallest grid unit in the seqroll is a "sub-step".  The next largest
+ *  unit is a "note-step", which is inside a note.  Each note contains PPQN
+ *  ticks.  The  pulses-per-sub-step value represent the smallest horizontal
+ *  unit in a Seq66 grid.  It is the number of pixels in the smallest
+ *  increment between vertical lines in the grid.  For a zoom of 2, this
+ *  number gets doubled.
+ *
+ *  If the value that results is odd, then the horizontal line match
+ *  calculation can fail, resulting in missing lines and missing measure
+ *  numbers. In this case, we increment the resul to make it even.
+ *
+ *  Current status at PPQN = 192, Base pixels (pixels_per_substep) = 6:
+ *
+\verbatim
+    Zoom    Note-steps  Substeps   Substeps/Note (#SS)
+      1         4           8           32
+      2         4           4           16
+      4         4           2            8
+      8         4           0            4
+     16         2           0            2
+     32         0           0            1
+     64        1/2          0           1/2
+    128         0           0           1/4
+\endverbatim
+ *
+ *  Pulses-per-substep is given by PPSS = PPQN / #SS, where #SS = 32 / Zoom.
+ *  But 32 is the base PPQN (192) divided by the base pixels (6). In the end,
+ *
+ *      PPSS = (PPQN * Zoom * Base Pixels) / Base PPQN
+ *
+ *  In units:
+ *
+ *      pulses      pulses     pulses     pixel         qn
+ *     --------- = -------- * -------- * --------- * --------
+ *      substep       qn       pixel      substep     pulses
+ *
+ *  Currently the Base values are hardwired (see usrsettings).  The base
+ *  pixels value is pixels_per_substep = 6, and the base PPQN is
+ *  base_ppqn() = 192.  The numerator of this equation is well within
+ *  the limit of a 32-bit integer.
+ *
+ * \param ppqn
+ *      Provides the actual PPQN used by the currently-loaded tune.
+ *
+ * \param zoom
+ *      Provides the current zoom value.  Defaults to 2, but can be
+ *      another value. The zoom value is the number of pulses per pixel.
+ *      Thus, zooming in (making the horizontal grid segments wider)
+ *      yields fewer pulses per pixel. We can zoom out further than
+ *      we can zoom in, which is just one step from the default zoom.
+ *
+ * \return
+ *      The result of the above equation is returned.
+ */
+
+int
+pulses_per_substep (midi::pulse ppq, int zoom)
+{
+    const int pixels_per_substep { 6 };
+
+    /*
+     *  int result = zoom * pixels_per_substep;
+     */
+
+    int result { int(ppq) * zoom * pixels_per_substep / base_ppqn() };
+    if ((result % 2) != 0)
+        ++result;
+
+    return result;
+}
+
+/**
+ *  Similar to pulses_per_substep(), but for a single pixel.  Actually, what
+ *  this function does is scale the PPQN against base_ppqn() (192).
+ *
+ * \param ppq
+ *      Provides the actual PPQN used by the currently-loaded tune.
+ *
+ * \param zoom
+ *      Provides the current zoom value.  Defaults to 1, which can be used
+ *      to simply get the ratio between the actual PPQN, but only when PPQN >=
+ *      base_ppqn().
+ *
+ * \return
+ *      The result of the above equation is returned.
+ */
+
+int
+pulses_per_pixel (midi::pulse ppq, int zoom)
+{
+    midi::pulse result { (ppq * zoom) / base_ppqn() };
+    if (result == 0)
+        result = 1;
+
+    return result;
+}
+
+/**
+ *  Internal function for simple calculation of a power of 2 without a lot of
+ *  math.  Use for calculating the denominator of a time signature.
+ *
+ * \param logbase2
+ *      Provides the power to which 2 is to be raised.  This integer is
+ *      probably only rarely greater than 5 (which represents a denominator of
+ *      32).
+ *
+ * \return
+ *      Returns 2 raised to the logbase2 power.
+ */
+
+int
+beat_power_of_2 (int logbase2)
+{
+    int result;
+    if (logbase2 == 0)
+    {
+        result = 1;
+    }
+    else
+    {
+        result = 2;
+        for (int c = 1; c < logbase2; ++c)
+            result <<= 1;
+    }
+    return result;
+}
+
+/**
+ *  Calculates the previous power of 2 before a given number. Not meant to be
+ *  rigorous, just enough for MIDI usage. No numbers where a multiplication
+ *  by 2 would overflow an int.
+ *
+ *
+ * \param value
+ *      Provides the value to be rounded up to the next power of 2.
+ *
+ * \return
+ *      Returns the previous power of 2 below the given value. If already a
+ *      power of 2, it is returned as is. If the value is 0 (or less than
+ *      0), 1 is returned.
+ */
+
+int
+previous_power_of_2 (int value)
+{
+    int result { 1 };
+    if (value > 1)
+    {
+        result = value >> 1;
+        result <<= 1;
+    }
+    return result;
+}
+
+/**
+ *  Calculates the next power of 2 after a given number. Not meant to be
+ *  rigorous, just enough for MIDI usage. No numbers where a multiplication
+ *  by 2 would overflow an int.
+ *
+ *
+ * \param value
+ *      Provides the value to be rounded up to the next power of 2.
+ *
+ * \return
+ *      Returns the next power of 2 above the given value. If already a
+ *      power of 2, it is returned as is. If the value is 0 (or less than
+ *      0), 1 is returned.
+ */
+
+int
+next_power_of_2 (int value)
+{
+    int result { 1 };
+    if (value > 0)
+    {
+        while (result <= value)
+        {
+            if (result < value)
+                result <<= 1;
+            else
+                break;
+        }
+    }
+    return result;
+}
+
+/**
+ *  Calculates positive integer powers.
+ *
+ * \param base
+ *      The number to be raised to the power.
+ *
+ * \param exponent
+ *      The power to be applied.  Only 0 or above are accepted.  However,
+ *      there is currently no check for integer overflow of the result. This
+ *      function is meant for reasonably small powers.
+ *
+ * \return
+ *      Returns the power.  If the exponent is illegal, the 0 is returned.
+ */
+
+int
+power (int base, int exponent)
+{
+    int result { 0 };
+    if (exponent > 1)
+    {
+        result = base;
+        for (int p = exponent; p > 1; --p)
+            result *= base;
+    }
+    else if (exponent == 1)
+        result = base;
+    else if (exponent == 0)
+        result = 1;
+
+    return result;
+}
+
+/**
+ *  Calculates the base-2 log of a number. This number is truncated to an
+ *  integer byte value, as it is used in calculating values to be written
+ *  to a MIDI file.
+ *
+ * \param value
+ *      The integer value for which log2(value) is needed.
+ *
+ * \return
+ *      Returns log2(value).
+ */
+
+midi::byte
+beat_log2 (int value)
+{
+    return value > 0 ? midi::byte(std::log(double(value)) / std::log(2.0)) : 0 ;
+}
+
+/**
+ *  Provides a direct conversion from a byte array to the beats/minute
+ *  value. Calculates the tempo in microseconds from the bytes read from
+ *  a Tempo event in a MIDI file.
+ *
+ *  Is it correct to simply cast the bytes to a double value?
+ *
+ * \param tt
+ *      Provides the 3-byte vector of values making up the raw tempo data.
+ *
+ * \return
+ *      Returns the result of converting the bytes to a double value.
+ */
+
+midi::bpm
+tempo_us_from_bytes (const midi::bytes & tt)
+{
+    midi::bpm result { midi::bpm(tt[0]) };
+    result = (result * 256) + midi::bpm(tt[1]);
+    result = (result * 256) + midi::bpm(tt[2]);
+    return result;
+}
+
+/**
+ *  Provide a way to convert a tempo value (microseconds per quarter note)
+ *  into the three bytes needed as value in a Tempo meta event.  Recall the
+ *  format of a Tempo event:
+ *
+ *  0 FF 51 03 t2 t1 t0 (tempo as number of microseconds per quarter note)
+ *
+ *  This code is the inverse of the lines of code around line 768 in
+ *  midifile.cpp, which is basically
+ *  <code> ((t2 * 256) + t1) * 256 + t0 </code>.
+ *
+ *  As a test case, note that the default tempo is 120 beats/minute, which is
+ *  equivalent to tttttt=500000 (0x07A120).  The output of this function will
+ *  be t[] = { 0x07, 0xa1, 0x20 } [the indices go 0, 1, 2].
+ *
+ * \param t
+ *      Provides a small array of 3 elements to hold each tempo byte.
+ *
+ * \param tempo_us
+ *      Provides the temp value in microseconds per quarter note.  This is
+ *      always an integer, not a double, so do not get confused here.
+ */
+
+bool
+tempo_us_to_bytes (midi::bytes & tt, midi::bpm tempo_us)
+{
+    bool result { tempo_us > 0.0 };
+    tt.clear();
+    if (result)
+    {
+        int temp { int(tempo_us + 0.5) };
+        tt.push_back(midi::byte((temp & 0xFF0000) >> 16));
+        tt.push_back(midi::byte((temp & 0x00FF00) >> 8));
+        tt.push_back(midi::byte(temp & 0x0000FF));
+    }
+    else
+    {
+        tt.push_back(0);
+        tt.push_back(0);
+        tt.push_back(0);
+    }
+    return result;
+}
+
+/**
+ *  Converts a tempo value to a MIDI note value for the purpose of displaying
+ *  a tempo value in the mainwnd, seqdata section (hopefully!), and the
+ *  perfroll.  It implements the following linear equation, with clamping just
+ *  in case.
+ *
+\verbatim
+                           N1 - N0
+        N = N0 + (B - B0) ---------     where (N1 - N0) is always 127
+                           B1 - B0
+\endverbatim
+ *
+\verbatim
+                        127
+        N = (B - B0) ---------
+                      B1 - B0
+\endverbatim
+ *
+ *  where N0 = 0 (MIDI note 0 is the minimum), N1 = 127 (the maximum MIDI
+ *  note), B0 is the value of min_beats_per_minute()) B1 is the value of
+ *  usr().midi_bpm_maximum(), B is the input beats/minute, and N is the
+ *  resulting note value.  As a precaution due to rounding error, we clamp the
+ *  values between 0 and 127.
+ *
+ * \param tempovalue
+ *      The tempo in beats/minute.
+ *
+ * \return
+ *      Returns the tempo value scaled to the range 0 to 127, based on the
+ *      configured BPM minimum and maximum values.
+ */
+
+midi::byte
+tempo_to_note_value (midi::bpm tempovalue)
+{
+    double slope { double(max_midi_value()) };
+    slope /= max_beats_per_minute() - min_beats_per_minute();
+
+    int note { int(slope * (tempovalue - min_beats_per_minute()) + 0.5) };
+    return clamp_midi_value(note);
+}
+
+/**
+ *  The inverse of tempo_to_note_value().
+ *
+ *  From the above, we can derive:
+ *
+\verbatim
+            (B1 - B0) N
+        B = ------------ + B0
+               127
+\endverbatim
+ *
+ * \param note
+ *      The note value used for displaying the tempo in the seqdata pane, the
+ *      perfroll, and in a mainwnd slot.
+ *
+ * \return
+ *      Returns the tempo in beats/minute.
+ *
+ * TODO: see the Seq66 version.
+ */
+
+midi::bpm
+note_value_to_tempo (midi::byte note)
+{
+    double result { max_beats_per_minute() - min_beats_per_minute() };
+    result *= double(note);
+    result /= double(max_midi_value());
+    result += min_beats_per_minute();
+    return result;
+}
+
+/**
+ *  Fixes the tempo value, truncating it to the number of digits of tempo
+ *  precision (0, 1, or 2) specified by "bpm_precision" in the "usr" file.
+ *
+ * \param bpm
+ *      The uncorrected BPM value.
+ *
+ * \return
+ *      Returns the BPM truncated to the desired precision.
+ */
+
+midi::bpm
+fix_tempo (midi::bpm bp)
+{
+    int precision { max_bpm_precision() };  /* 0/1/2 digits past decimal    */
+    if (precision > 0)
+    {
+        bp *= 10.0;
+        if (precision == 2)
+            bp *= 10.0;
+    }
+    bp = trunc(bp);
+    if (precision > 0)
+    {
+        bp /= 10.0;
+        if (precision == 2)
+            bp /= 10.0;
+    }
+    return bp;
+}
+
+/**
+ *  In order to display discrete data, such as Program/Patch values,
+ *  properly in the data pane, we need to account for the constraints
+ *  on viewability that reduce the range from 0-127 to something less,
+ *  such as 7-120, for painting.
+ *
+ * \param invalue
+ *      Provides the input value, ranging from 0 to 127.
+ *
+ * \param reduction
+ *      Provides the amount to reduce the range on both ends.
+ *      This value might be a radius in pixels, for example.
+ */
+
+int
+midi_data_adjust (int invalue, int reduction)
+{
+    const int m_min { 0 };
+    const int m_max { max_midi_value() };     /* 127 */
+    const int a_min { m_min + reduction };
+    const int a_max { m_max - reduction };
+    double slope { double(a_max - a_min) / double(m_max - m_min) };
+    return int(slope * int(invalue) + a_min);
+}
+
+/**
+ *  Combines bytes into an unsigned-short value.
+ *
+ *  http://www.blitter.com/~russtopia/MIDI/~jglatt/tech/midispec/wheel.htm
+ *
+ *  Two data bytes follow the status. The two bytes should be combined
+ *  together to form a 14-bit value. The first data byte's bits 0 to 6 are
+ *  bits 0 to 6 of the 14-bit value. The second data byte's bits 0 to 6 are
+ *  really bits 7 to 13 of the 14-bit value. In other words, assuming that a
+ *  C program has the first byte in the variable First and the second data
+ *  byte in the variable Second, here's how to combine them into a 14-bit
+ *  value (actually 16-bit since most computer CPUs deal with 16-bit, not
+ *  14-bit, integers).
+ *
+ *  I think Kepler34 got the bytes backward.
+ *
+ * \param msb
+ *      The first byte to be combined.
+ *
+ * \param lsb
+ *      The second byte to be combined. Defaults to 0.
+ *
+ * \return
+ *      Returns the bytes basically OR'd together.
+ */
+
+unsigned short
+combine_bytes (midi::byte msb, midi::byte lsb)
+{
+   unsigned short short_14bit { (unsigned short)(msb) };
+   short_14bit <<= 7;
+   short_14bit |= (unsigned short)(lsb);
+   return short_14bit * 48;
+}
+
+/**
+ *  A separate version of combine_bytes(), sort of. It doesn't do
+ *  the multiplication by 48.
+ *
+ * \param msb
+ *      The first byte to be combined. The MSB. It should be a 7-bit
+ *      value, but we don't check or insure that.
+ *
+ * \param lsb
+ *      The second byte to be combined. The LSB. It should be a 7-bit
+ *      value, but we don't check or insure that. Defaults to 0.
+ *
+ * \return
+ *      Returns the bytes basically shifted and OR'd together.
+ */
+
+unsigned short
+join_14_bits (midi::byte msb, midi::byte lsb)
+{
+   unsigned short short_14bit { (unsigned short)(msb) };
+   short_14bit <<= 7;
+   short_14bit |= (unsigned short)(lsb);
+   return short_14bit;
+}
+
+/**
+ * The inverse of decode_14_bits(). Compare this function to
+ * pitch_data_bytes(), which does a little more.
+ *
+ * \param value14
+ *      The value to be split into 7-bit bytes. It is checked to be sure
+ *      it is less than 2^14 (16384).
+ *
+ * \param [out] msb
+ *      The first byte extracted. The MSB. It will be a 7-bit
+ *      value.
+ *
+ * \param [out] lsb
+ *      The second byte extracted. The LSB. It will be a 7-bit
+ *      value.
+ *
+ * \return
+ *      Returns true if the value is really 14 bits. Otherwise,
+ *      use the results at your own risk.
+ */
+
+bool
+split_14_bits (unsigned short value14, midi::byte & msb, midi::byte & lsb)
+{
+    bool result { value14 < 16384 };
+    lsb = value14 & 0x7F;
+    msb = (value14 >> 7) & 0x7F;
+    return result;
+}
+
+/**
+ *  Extracts a MIDI Variable-Length Value (VLV) from a byte array.
+ *  See read_varinum().
+ *
+ * \param [out] index
+ *      Provides the starting index of the varinum in data, and
+ *      returns the index after scanning the varinum.
+ *
+ * \return
+ *      Returns the accumulated values as a single number.
+ */
+
+midi::ulong
+extract_varinum (const midi::bytes & data, int & index)
+{
+    midi::ulong result { 0 };
+    midi::byte c { 0 };
+    for ( ; index < int(data.size()); ++index)
+    {
+        c = data[index];
+        if ((c & 0x80) != 0x00)                     /* bit 7 is set         */
+        {
+            result <<= 7;                           /* shift result 7 bits  */
+            result += c & 0x7F;                     /* add bits 0-6         */
+        }
+        else
+        {
+            ++index;
+            break;
+        }
+    }
+    result <<= 7;                                   /* bit was clear       */
+    result += c & 0x7F;
+    return result;
+}
+
+midi::ulong
+extract_varinum (const midi::byte * data, int count, int & index)
+{
+    midi::ulong result { 0 };
+    midi::byte c { 0 };
+    for ( ; index < count; ++index)
+    {
+        c = data[index];
+        if ((c & 0x80) != 0x00)                     /* bit 7 is set         */
+        {
+            result <<= 7;                           /* shift result 7 bits  */
+            result += c & 0x7F;                     /* add bits 0-6         */
+        }
+        else
+        {
+            ++index;
+            break;
+        }
+    }
+    result <<= 7;                                   /* bit was clear       */
+    result += c & 0x7F;
+    return result;
+}
+
+/**
+ *  Converts a MIDI Variable-Length Value (VLV), which has a variable number
+ *  of bytes, into a long value.  This function reads the bytes while bit 7 is
+ *  set in each byte.  Bit 7 is a continuation bit.  Similar to
+ *  extract_varinum() or midifile::read_varinum(), but works with the whole
+ *  data string.
+ *
+ *  Compare this function to the "varinum" functions in the bytevector
+ *  class in the Cfg66 library.
+ *
+ * \param data
+ *      Provides a vector of bytes to be converted as base-128 digits.
+ *
+ * \return
+ *      Returns the single long value.
+ */
+
+midi::ulong
+vlv_to_long (const midi::bytes & data)
+{
+    midi::ulong result { 0 };
+    midi::byte b { 0 };
+    for (auto c : data)
+    {
+        if ((c & 0x80) != 0x00)                     /* bit 7 is set         */
+        {
+            result <<= 7;                           /* shift result 7 bits  */
+            result += c & 0x7F;                     /* add bits 0-6         */
+        }
+        b = c;                                      /* save for the end     */
+    }
+    result <<= 7;                                   /* bit was clear        */
+    result += b & 0x7F;
+    return result;
+}
+
+/**
+ *  Creates a MIDI Variable-Length Value (VLV), which has a variable number
+ *  of bytes.
+ *
+ *  Each byte has two parts: 7 bits of data and 1 continuation bit. The
+ *  highest-order bit is set to 1 if there is another byte of the number to
+ *  follow. The highest-order bit is set to 0 if this byte is the last byte in
+ *  the VLV.
+ *
+ *  To recreate a number represented by a VLV, first you remove the
+ *  continuation bit and then concatenate the leftover bits into a single
+ *  number.
+ *
+ *  To generate a VLV from a given number, break the number up into 7 bit
+ *  units and then apply the correct continuation bit to each byte.
+ *  Basically this is a base-128 system where the digits range from 0 to 7F.
+ *
+ *  In theory, you could have a very long VLV number which was quite
+ *  large; however, in the standard MIDI file specification, the maximum
+ *  length of a VLV value is 5 bytes, and the number it represents can not
+ *  be larger than 4 bytes.
+ *
+ *  Here are some common cases:
+ *
+ *      -   Numbers between 0 and 127 are represented by a single byte:
+ *          0x00 to 7F.
+ *      -   0x80 is represented as 0x81 00.  The first number is
+ *          10000001, with the left bit being the continuation bit.
+ *          The rest of the number is multiplied by 128, and the second byte
+ *          (0) is added to that. So 0x82 would be 0x81 0x01
+ *      -   The largest 2-byte MIDI value (e.g. a sequence number) is
+ *          0xFF 7F, which is 127 * 128 + 127 = 16383 = 0x3FFF.
+ *      -   The largest 3-byte MIDI value is 0xFF FF 7F = 2097151 = 0x1FFFFF.
+ *      -   The largest number, 4 bytes, is 0xFF FF FF 7F = 536870911 =
+ *          0xFFFFFFF.
+ *  Similar to midifile::write_varinum(), but returns the generated data
+ *  bytes.
+ *
+ *  Compare this function to the "varinum" functions in the bytevector
+ *  class in the Cfg66 library.
+ */
+
+midi::bytes
+long_to_vlv (midi::ulong v)
+{
+    midi::bytes result;
+    midi::ulong value { v & 0x7f };                 /* mask a no-sign byte  */
+    while ((v >>= 7) > 0)                           /* shift right and test */
+    {
+        value <<= 8;                                /* move LSB bits to MSB */
+        value |= 0x80;                              /* set bit 7            */
+        value += (v & 0x7f);                        /* add the LSB          */
+    }
+    for (;;)
+    {
+        result.push_back(midi::byte(value & 0xff)); /* add the LSB          */
+        if (value & 0x80)                           /* continuation bit?    */
+            value >>= 8;                            /* yes, get next MSB    */
+        else
+            break;                                  /* no, we are done      */
+    }
+    return result;
+}
+
+/**
+ *  Calculates a wave function for use as an LFO (low-frequency oscillator)
+ *  for modifying data values in a sequence.  We extracted this function from
+ *  mattias's lfownd module, as it is more generally useful.  The angle
+ *  parameter is provided by the lfownd object.  It is calculated by
+ *
+\verbatim
+                 speed * tick
+        angle = -------------- + phase
+                    length
+\endverbatim
+ *
+ *  The speed (number of periods in the transformation) ranges from 0 to 16 in
+ *  the user interface; the ratio of tick/seqlength ranges from 0 to 1; the
+ *  phase ranges from 0 to 1, equivalent to 0 to 360 degrees.
+ *
+ * \param angle
+ *      Provides the radial "angle" to be applied. Assuming that the "speed"
+ *      (number of periods) is 1, then, for a one-measure pattern or
+ *      a longer pattern with "Use Measures" unchecked in qlfoframe, this value
+ *      ranges from 0.0 to 1.0.  Increasing the "speed" or the number of
+ *      measures increases the angle range proportionately.
+ *
+ * \param wavetype
+ *      Provides the wave value to select the type of wave data-point
+ *      to be generated.
+ *
+ * \return
+ *      Returns the result of the calculation, which will range from -1.0 to
+ *      0.0 to 1.0, depending on the wave employed.
+ */
+
+double
+wave_func (double omega, waveform wavetype)
+{
+    double result { 0.0 };
+    double tmp;
+    switch (wavetype)
+    {
+    case waveform::sine:
+
+        result = sin(omega);
+        break;
+
+    case waveform::sawtooth:
+
+        result = fmod(omega, 2.0 * M_PI) / (2.0 * M_PI);    /* 0.0 to 1.0   */
+        break;
+
+    case waveform::reverse_sawtooth:
+
+        result = 1.0 - fmod(omega, 2.0 * M_PI) / (2.0 * M_PI);
+        break;
+
+    case waveform::triangle:
+
+        result = fmod(omega, 2.0 * M_PI) / (2.0 * M_PI);    /* 0.0 to 1.0   */
+        result *= 2.0;                                      /* 0.0 to 2.0   */
+        result -= 1.0;                                      /* -1.0 to 1.0  */
+        break;
+
+    case waveform::exponential:
+
+        tmp = fmod(omega, 2.0 * M_PI) / (2.0 * M_PI);       /* 0.0 to 1.0   */
+        result = exp_normalize(tmp);
+        break;
+
+    case waveform::reverse_exponential:
+
+        tmp = fmod(omega, 2.0 * M_PI) / (2.0 * M_PI);       /* 0.0 to 1.0   */
+        result = exp_normalize(tmp, true);
+        break;
+
+    case waveform::dc:
+
+        result = 1.0;
+        break;
+
+    default:
+        break;
+    }
+    return result;
+}
+
+#if CFG66_NEEDS_UNIT_TRUNCATION
+
+/**
+ *  Converts a double value to range from 0.0 to 1.0. That is, it returns the
+ *  fractional portion.  For example, 4.145 would become 0.145.
+ */
+
+double
+unit_truncation (double angle)
+{
+    double result { angle };
+    if (result > 1.0)
+    {
+        double truncated { trunc(result) };
+        result -= truncated;
+    }
+    return result;
+}
+
+#endif
+
+/**
+ *  This function maps byte values from 0 to 127 to the range of
+ *  approximately e^(-2.436) to e^(+2.436), which is 0.884 to 11.314.
+ *  These values convert nicely to a range of 11.314 / 0.0884 = 128.
+ *
+ *  So we take the angle A:
+ *
+ *  -#  Convert A via truncation so it ranges from 0.0 to 1.0.  Call it T.
+ *  -#  Re-map A to range from Emin = -2.436 to Emax = 2.436. Call it A'.
+ *  -#  Take e to the power A'.
+ *  -#  Rescale the result to the range of 0.0 to 1.0, for use in the LFO
+ *      generator.
+ *
+ *  The re-mapping equations is y = mx + b, where the y-intercept is easily
+ *  seen to be b = Emin, and the slope is m = Emax - Emin = range.
+ *
+ *  For a reverse exponential, we simply negate the exponent
+ */
+
+double
+exp_normalize (double angle, bool negate)
+{
+    static const double s_range { log(double(max_midi_value())) }; /* 4.852 */
+    static const double s_exp_max { s_range / 2.0 };               /* +2.42 */
+    static const double s_exp_min { -s_exp_max };                  /* -2.42 */
+    static const double s_scaler { exp(s_exp_min) };
+
+    /*
+     * Removed in Seq66
+     *
+     * double T = unit_truncation(angle);
+     */
+
+    double Aprime { s_range * angle + s_exp_min };
+    if (negate)
+        Aprime = -Aprime;
+
+    double result { exp(Aprime) };
+    result *= s_scaler;
+    return result;
+}
+
+/**
+ *  Converts a wave type value to a string.  These names are short because I
+ *  cannot figure out how to get the window pad out to show the longer names.
+ *
+ * \param wavetype
+ *      The wave-type value to be displayed.
+ *
+ * \return
+ *      Returns a short description of the wave type.
+ */
+
+std::string
+wave_type_name (waveform wavetype)
+{
+    std::string result { "None" };
+    switch (wavetype)
+    {
+    case waveform::sine:
+
+        result = "Sine";
+        break;
+
+    case waveform::sawtooth:
+
+        result = "Ramp Up Saw";
+        break;
+
+    case waveform::reverse_sawtooth:
+
+        result = "Decay Saw";
+        break;
+
+    case waveform::triangle:
+
+        result = "Triangle";
+        break;
+
+    case waveform::exponential:
+
+        result = "Exponential Rise";
+        break;
+
+    case waveform::reverse_exponential:
+
+        result = "Exponential Fall";
+        break;
+
+    case waveform::dc:
+
+        result = "DC Offset";
+        break;
+
+    default:
+
+        break;
+    }
+    return result;
+}
+
+/**
+ *  Moved to the portnaming module (see project Rtl66):
+ *
+ *      -   extract_port_names ()
+ *      -   extract_bus_name ()
+ *      -   extract_port_name ()
+ *      -   extract_a2j_port_name ()
+ *
+ *  At present, we don't need that here yet.
+ */
+
+/**
+ *  Converts an array containing a MIDI Variable-Length Value (VLV),
+ *  which has a variable number of bytes.  This function gets the bytes
+ *  while bit 7 is set in each byte.  Bit 7 is a continuation bit.
+ *  See varinum_to_bytes() for more information.
+ *
+ * \param bdata
+ *      A vector of bytes. The varinum data is assumed to start at bdata[0].
+ *
+ * \param offset
+ *      A starting-offset parameter; bytes are skipped until this offset
+ *      is reached.
+ *
+ * \return
+ *      Returns the accumulated values as a single number.
+ */
+
+midi::ulong
+bytes_to_varinum (const midi::bytes & bdata, size_t offset)
+{
+    midi::ulong result { 0 };
+    size_t count { 0 };
+    for (auto c : bdata)
+    {
+        if (count >= offset)
+        {
+            result <<= 7;                           /* shift result 7 bits  */
+            result += c & 0x7F;                     /* add base-128 "digit" */
+            if ((c & 0x80) == 0x00)                 /* no bit 7 set, done   */
+                break;
+        }
+        ++count;
+    }
+    return result;
+}
+
+/**
+ *  Writes a MIDI Variable-Length Value (VLV), which has a variable number
+ *  of bytes. In MIDI, this value is used for encoding delta times and
+ *  data lengths. It is essentially a string of base-128 values.
+ *
+ *  A MIDI file Variable Length Value is stored in bytes. Each byte has
+ *  two parts: 7 bits of data and 1 continuation bit. The highest-order
+ *  bit is set to 1 if there is another byte of the number to follow. The
+ *  highest-order bit is set to 0 if this byte is the last byte in the
+ *  VLV.
+ *
+ *  To recreate a number represented by a VLV, first you remove the
+ *  continuation bit and then concatenate the leftover bits into a single
+ *  number.
+ *
+ *  To generate a VLV from a given number, break the number up into 7 bit
+ *  units and then apply the correct continuation bit to each byte.
+ *  Basically this is a base-128 system where the digits range from 0 to 7F.
+ *
+ *  In theory, you could have a very long VLV number which was quite
+ *  large; however, in the standard MIDI file specification, the maximum
+ *  length of a VLV value is 5 bytes, and the number it represents can not
+ *  be larger than 4 bytes.
+ *
+ *  Here are some common cases:
+ *
+ *      -   Numbers between 0 and 127 are represented by a single byte:
+ *          0x00 to 7F.
+ *      -   0x80 is represented as 0x81 00.  The first number is
+ *          10000001, with the left bit being the continuation bit.
+ *          The rest of the number is multiplied by 128, and the second byte
+ *          (0) is added to that. So 0x82 would be 0x81 0x01
+ *      -   The largest 2-byte MIDI value (e.g. a sequence number) is
+ *          0xFF 7F, which is 127 * 128 + 127 = 16383 = 0x3FFF.
+ *      -   The largest 3-byte MIDI value is 0xFF FF 7F = 2097151 = 0x1FFFFF.
+ *      -   The largest number, 4 bytes, is 0xFF FF FF 7F = 536870911 =
+ *          0xFFFFFFF.
+ *
+ *  Also see the varinum_size() and midi::track_base::add_variable() functions.
+ *  This function masks off the lower 8 bits of the long parameter, then
+ *  shifts it right 7, and, if there are still set bits, it encodes it into
+ *  the buffer in reverse order.  This function "replaces"
+ *  sequence::put_list_var().  It is almost identical to midifile ::
+ *  write_varinum() from Seq66.
+ *
+ * \param v
+ *      The data value to be added to the current event in the MIDI container.
+ */
+
+midi::bytes
+varinum_to_bytes (midi::ulong v)
+{
+    return long_to_vlv(v);                          /* redundancy detected! */
+}
+
+/**
+ *  Calculates the length of a variable length value (VLV).  This function is
+ *  needed when calculating the length of a track.  Note that it handles
+ *  only the following situations:
+ *
+ *      https://en.wikipedia.org/wiki/Variable-length_quantity
+ *
+ *  This restriction allows the calculation to be simple and fast.
+ *
+\verbatim
+       1 byte:  0x00 to 0x7F
+       2 bytes: 0x80 to 0x3FFF
+       3 bytes: 0x4000 to 0x001FFFFF
+       4 bytes: 0x200000 to 0x0FFFFFFF
+\endverbatim
+ *
+ * Questions:
+ *
+ *      -   Should we backport this to Seq66?
+ *      -   Do we need to go up to 5 bytes?
+ *
+ * \param len
+ *      The long value whose length, when encoded as a MIDI varinum, is to be
+ *      found.
+ *
+ * \return
+ *      Returns values as noted above.  Anything beyond that range returns
+ *      0.
+ */
+
+int
+varinum_size (long len)
+{
+    int result { 0 };
+    if (len >= 0x00 && len < 0x80)
+        result = 1;
+    else if (len >= 0x80 && len < 0x4000)
+        result = 2;
+    else if (len >= 0x4000 && len < 0x200000)
+        result = 3;
+    else if (len >= 0x200000 && len < 0x10000000)
+        result = 4;
+
+    return result;
+}
+
+/**
+ *  An internal helper function to test if the data provided is
+ *  a meta text message.
+ */
+
+static bool
+check_metatext (const midi::bytes & bdata)
+{
+    static size_t s_min_metatext_size { 4 };    /* FF xx len onecharacter   */
+    bool result
+    {
+        bdata.size() >= s_min_metatext_size &&
+        midi::is_meta(bdata[0]) &&
+        midi::is_meta_text_msg(bdata[1])
+    };
+    return result;
+}
+
+/**
+ *  Extracts a string from a text event, with some error-checking:
+ *
+ *      -   Is the message long enough to have all 4 components?
+ *      -   Is it a meta message?
+ *      -   Is it a meta text message?
+ *      -   How many bytes is the variable-length value?
+ */
+
+std::string
+get_meta_event_text (const midi::bytes & bdata)
+{
+    static size_t s_length_offset { 2 };        /* FF nn len ...            */
+    std::string result;
+    if (check_metatext(bdata))
+    {
+        size_t len { size_t(bytes_to_varinum(bdata, s_length_offset)) };
+        size_t textoffset { varinum_size(long(len)) + s_length_offset };
+        for (size_t i = 0; i < len; ++i, ++textoffset)
+        {
+            char c { static_cast<char>(bdata[textoffset]) };
+            result.push_back(c);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Changes the text in a byte vector reflecting an existing event.  The data
+ *  must exist; this function is meant only to modify the data.
+ *
+ *          FF xx len characters
+ */
+
+bool
+set_meta_event_text (midi::bytes & bdata, const std::string & text)
+{
+    bool result { check_metatext(bdata) };
+    if (result)
+    {
+        midi::byte metatype { bdata[1] };               /* to restore later */
+        midi::bytes lenbytes { varinum_to_bytes(midi::ulong(text.length())) };
+        bdata.clear();
+        bdata.push_back(midi::to_byte(midi::status::meta_msg));     /* 0xFF */
+        bdata.push_back(metatype);
+        for (auto c : lenbytes)
+            bdata.push_back(c);
+
+        for (auto c : text)
+        {
+            midi::byte b { static_cast<midi::byte>(c) };
+            bdata.push_back(b);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Calculates the closest snap value.
+ *
+ * \param S
+ *      Provides the snap value to be applied. Ignored if it is 0.
+ *
+ * \param p
+ *      Provide the value to be snapped.
+ *
+ * \return
+ *      Returns the snapped value.
+ */
+
+midi::pulse
+closest_snap (int S, midi::pulse p)
+{
+    midi::pulse result { p };
+    if (p <= 0)
+        return 0;
+
+    if (S > 0)
+    {
+        midi::pulse Sn0 { p - (p % S) };
+        midi::pulse Sn1 { Sn0 + S };
+        int deltalo { int(p - Sn0) };           /* do we need to use abs()? */
+        int deltahi { int(Sn1 - p) };
+        result = deltalo <= deltahi ? Sn0 : Sn1 ;
+    }
+    return result;
+}
+
+midi::pulse
+down_snap (int S, midi::pulse p)
+{
+    midi::pulse result { p };
+    if (p <= 0)
+        return 0;
+
+    if (S > 0)
+    {
+        result = midi::pulse(p - (p % S));
+        if (p <= 0)
+            result = 0;
+    }
+    return result;
+}
+
+midi::pulse
+up_snap (int S, midi::pulse p)
+{
+    midi::pulse result { p };
+    if (p < 0)
+        return 0;
+
+    if (S > 0)
+    {
+        midi::pulse Sn0 { p - (p % S) };
+        result = Sn0 + midi::pulse(S);
+    }
+    return result;
+}
+
+/**
+ *  Comparison of floating-point values. We can tolerate a fairly large
+ *  epsilon value in our MIDI code.
+ *
+ *  See https://realtimecollisiondetection.net/blog/?p=89 for some gory
+ *  details.
+ *
+ *     if (Abs(x – y) <= EPSILON * Max(1.0f, Abs(x), Abs(y))
+ */
+
+static double s_epsilon { 0.0001 };
+
+static double
+one_max (double a, double b)
+{
+    double result { 1.0f };
+    if (std::fabs(a) > result)
+        result = std::fabs(a);
+
+    if (std::fabs(b) > result)
+        result = std::fabs(b);
+
+    return result;
+}
+
+/**
+ *  Calculates x == y to within the epsilon, and returns true if that is so.
+ */
+
+bool
+fequal (double x, double y)
+{
+    return std::fabs(x - y) <= s_epsilon * one_max(std::fabs(x), std::fabs(y));
+}
+
+/**
+ *  Calculates x != y to within the epsilon, and returns true if that is so.
+ */
+
+bool
+fnotequal (double x, double y)
+{
+    return std::fabs(x - y) > s_epsilon * one_max(std::fabs(x), std::fabs(y));
+}
+
+/**
+ *  Calculates x < y and returns true if that is so.
+ */
+
+bool
+flessthan (double x, double y)
+{
+    return x < (y - s_epsilon * one_max(std::fabs(x), std::fabs(y)));
+}
+
+/**
+ *  Calculates x > y and returns true if that is so.
+ */
+
+bool
+fgreaterthan (double x, double y)
+{
+    return x > (y + s_epsilon * one_max(std::fabs(x), std::fabs(y)));
+}
+
+/**
+ *  Pitch bend calculations. The MIDI Pitch Bend range is depicted here:
+ *
+ *          bend down          center           bend up
+ *            0 |<----------- | 8192  | ----------->| 16384 - 1
+ *          0x0 |<---------- | 0x2000 | ----------->| 0x4000 - 1
+ *         -8192                 0                   8191
+ *
+ *      -   14 bits resolution (MSB, LSB). Value = 128 * MSB + LSB
+ *      -   Minimum: The maximum negative swing is byte values of
+ *          00, 00. Value = 0.
+ *      -   Center: The center (no effect) position is byte value of
+ *          00, 64 (0x00, 0x40). Value = 8192.
+ *      -   Maximum: The maximum positive swing is byte values of
+ *          127, 127 (0x7F, 0x7F). Value = 16384.
+ *
+ *  Pitch Bend Sensitivity is defined as Registered Parameter Number 00 00.
+ *  The MSB represents the sensitivity in semitones and the LSB
+ *  represents the sensitivity in cents. A cent is 0.01 semitones.
+ *
+ *  MIDI pitch bend data is encoded using big-endian byte order: the MSB
+ *  is transmitted or stored first, followed by the LSB. For example, a
+ *  pitch bend of 8192 (no pitch bend) is represented as two bytes:
+ *  0x40 (MSB) and 0x00 (LSB). In Seq66, the LSB is D0, and the MSB
+ *  is D1.
+ *
+ * \param d0
+ *      The LSB of the pitch-bend value.
+ *
+ * \param d1
+ *      The MSB of the pitch-bend value.
+ *
+ * \param semitone-range
+ *      The number of semitones up or down when the highest or lowest
+ *      values in the range are used. It defaults to 2 semitones up or
+ *      down.
+ */
+
+double
+pitch_value_semitones (midi::byte d0, midi::byte d1, int semitone_range)
+{
+    double factor { double(semitone_range) / 8192.0 };
+    int value { pitch_value(d0, d1) };  /* from -8192 to +8192, approx.     */
+    return factor * double(value);
+}
+
+/**
+ *  Given a base pitch value (i.e. independent of the current semitone range),
+ *  provides the two bytes needed to encode the pitch-wheel event in a MIDI
+ *  file. The maximum value is 16383 = 0x3FFF, or, in bits
+ *
+ *            3    F    F    F
+ *          0011 1111 1111 1111
+ *
+ *  But we have to get 7 bits for each:
+ *
+ *                       7F
+ *          00111111-1-1111111
+ *             3 F   8    0
+ *
+ *  Compare this function to split_14_bits().
+ *
+ * \param pitch
+ *      Provides the pitch value, which must range from 0 to 16384.
+ *      Otherwise, 8192 is assumed.
+ *
+ * \param [out] d0
+ *      The LSB of the pitch-bend value. It is obtained with a mask of
+ *      0x7F.
+ *
+ * \param [out] d1
+ *      The MSB of the pitch-bend value. It is obtained by shifting
+ *      the pitch value 7 bits.
+ */
+
+void
+pitch_data_bytes (int pitch, midi::byte & d0, midi::byte & d1)
+{
+    if (pitch >= 0 && pitch < 16384)
+    {
+        d1 = midi::byte(pitch >> 7);        /* shift pitch to get the MSB   */
+        d0 = midi::byte(pitch & 0x7F);      /* mask the LSB to get d0       */
+    }
+    else
+    {
+        d1 = 64;
+        d0 = 0;
+    }
+}
+
+void
+pitch_data_bytes_scaled (midi::byte pitch, midi::byte & d0, midi::byte & d1)
+{
+    int truevalue = int(pitch) >> 7;
+    pitch_data_bytes(truevalue, d0, d1);
+}
+
+bool
+beat_width_is_valid (int bw)
+{
+    return is_power_of_2(bw) && bw < 64;
+}
+
+bool
+beats_per_bar_is_valid (int bpb)
+{
+    return (bpb > 0 && bpb <= 16) || (bpb == 32);
+}
+
+/**
+ *  Comes from Seq66's supported_ppqns() in it's settings module, but
+ *  convert to use numbers instead of strings.
+ */
+
+bool
+ppqn_is_valid (midi::pulse ppq)
+{
+    static std::vector<midi::pulse> s_supported_ppqn_list
+    {
+        24, 32, 48, 96, 120, 192, 240, 384, 480, 768,
+        960, 1920, 2400, 3840, 7680, 9600, 19200
+    };
+    for (midi::pulse p : s_supported_ppqn_list)
+    {
+        if (ppq == p)
+            return true;
+    }
+    return false;
+}
+
+/**
+ *  Calculates a small subset of expressions related to MIDI.
+ *
+ *      -   "vlv <long integer>" ---> <vlv bytes>
+ *      -   "long <vlv bytes>"   ---> <long integer>
+ */
+
+std::string
+cmd_calculate (const std::string & expression)
+{
+    std::string result;
+    lib66::tokenization tokens { util::tokenize(expression) };
+    std::size_t sz { tokens.size() };
+    if (sz > 0)
+    {
+        std::string cmd { tokens[0] };
+        if (sz >= 2)
+        {
+            if (sz == 2)
+            {
+                if (cmd == "vlv")
+                {
+                    long value { util::string_to_long(tokens[1]) };
+                    midi::bytes byts { long_to_vlv(midi::ulong(value)) };
+                    int counter { 0 };
+                    for (auto b : byts)
+                    {
+                        if (counter++ > 0)
+                            result += " ";
+
+                        char tmp [8];
+                        snprintf(tmp, sizeof tmp, "0x%02X", unsigned(b));
+                        result += tmp;
+                    }
+                }
+                else if (cmd == "hex")
+                {
+                    result = util::decimal_to_hex(tokens[1]);
+                }
+                else if (cmd == "dec")
+                {
+                    result = util::hex_to_unsigned_decimal(tokens[1]);
+                }
+            }
+            else
+            {
+                if (cmd == "long" || cmd == "int")
+                {
+                    midi::bytes byts;
+                    for (int counter = 1; counter < int(sz); ++counter)
+                    {
+                        midi::byte b
+                        {
+                            midi::byte(util::string_to_unsigned(tokens[counter]))
+                        };
+                        byts.push_back(b);
+                    }
+
+                    midi::ulong value { vlv_to_long(byts) };
+                    result = std::to_string(long(value));
+                }
+                else if (cmd == "hex")
+                {
+                    for (int counter = 1; counter < int(sz); ++counter)
+                    {
+                        std::string s { util::decimal_to_hex(tokens[counter]) };
+                        if (counter > 1)
+                            result += " ";
+
+                        result += s;
+                    }
+                }
+                else if (cmd == "dec")
+                {
+                    for (int counter = 1; counter < int(sz); ++counter)
+                    {
+                        std::string s
+                        {
+                            util::hex_to_unsigned_decimal(tokens[counter])
+                        };
+                        if (counter > 1)
+                            result += " ";
+
+                        result += s;
+                    }
+                }
+                else
+                    result = "No such command";
+            }
+        }
+        else if (sz == 1)
+            result = "Needs arguments"; /* Any single token commands yet?   */
+    }
+    return result;
+}
+
+}       // namespace midi
+
+/*
+ * calculations.cpp
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=cpp
+ */

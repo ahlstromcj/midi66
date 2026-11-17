@@ -1,0 +1,27 @@
+#----------------------------------------------------------------------------
+#
+# Midi66 Library Wrapper
+# Chris Ahlstrom
+# 2024-04-15 to 2024-04-26
+#
+#   Midi66 wrapper for GitHub repository
+#
+#   When finished, replace 'wip' with 'head':
+#
+#----------------------------------------------------------------------------
+
+[wrap-git]
+
+url = https://github.com/ahlstromcj/midi66.git
+revision = head
+depth = 1
+
+[provide]
+
+#----------------------------------------------------------------------------
+# This dependency is declared in midi66/meson.build.
+#----------------------------------------------------------------------------
+
+libmidi66_library = libmidi66_dep
+
+# vim: ft=dosini

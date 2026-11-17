@@ -1,0 +1,60 @@
+Explanation of MIDI Test Data
+Chris Ahlstrom
+2026-11-10 to 2026-11-10
+
+[app] Read MIDI file PPQN 192: 'tests/data/midi/smoke.mid'
+
+The data below shows the contents of that MIDI file. For better testing
+(more test values) the output was modified to change the time-stamps
+and channels to create 'tests/data/midi/smoke.transcript'.
+
+When the spectest application is run, 'smoke.transcript' is
+read and then used to regenerate 'smoke-2.transcript'. Both
+are identical if the test succeeds.
+
+Track 0
+
+MTrk bytes=76
+0 Meta 0xFF 0x03 0x09 0x54 0x65 0x6D 0x70 0x6F 0x20 0x31 0x31 0x30 # Seq Name
+0 Meta 0xFF 0x59 0x02 0x00 0x00 # Key Signature
+0 Meta 0xFF 0x21 0x01 0x00 # MIDI Port
+0 Meta 0xFF 0x58 0x04 0x04 0x02 0x18 0x08 # Time Signature
+0 Meta 0xFF 0x51 0x03 0x07 0x62 0x1E # Set Tempo
+0 ProgChange chan=0 prog=35 # Fretless Bass
+0 ProgChange chan=0 prog=38 # Synth Bass 1
+0 ProgChange chan=0 prog=62 # Synth Brass 1
+0 ProgChange chan=0 prog=5 # Electric Piano 2
+0 CtrlChange chan=0 ctrl=7 level=120 # Volume
+0 CtrlChange chan=0 ctrl=7 level=120 # Volume
+0 CtrlChange chan=0 ctrl=7 level=96 # Volume
+0 CtrlChange chan=0 ctrl=7 level=120 # Volume
+0 CtrlChange chan=0 ctrl=7 level=120 # Volume
+768 Meta 0xFF 0x2F 0x00 # End of Track
+
+Track 1
+
+MTrk bytes=114
+0 Meta 0xFF 0x03 0x06 0x50 0x65 0x72 0x63 0x20 0x32 # Seq Name
+0 NoteOn chan=9 note=41 vel=80 # F2
+153 NoteOff chan=9 note=41 vel=0 # F2
+192 NoteOn chan=9 note=44 vel=80 # G#2
+345 NoteOff chan=9 note=44 vel=0 # G#2
+384 NoteOn chan=9 note=41 vel=80 # F2
+422 NoteOff chan=9 note=41 vel=0 # F2
+432 NoteOn chan=9 note=41 vel=80 # F2
+470 NoteOff chan=9 note=41 vel=0 # F2
+480 NoteOn chan=9 note=41 vel=80 # F2
+518 NoteOff chan=9 note=41 vel=0 # F2
+528 NoteOn chan=9 note=41 vel=80 # F2
+566 NoteOff chan=9 note=41 vel=0 # F2
+576 NoteOn chan=9 note=41 vel=80 # F2
+614 NoteOff chan=9 note=41 vel=0 # F2
+624 NoteOn chan=9 note=41 vel=80 # F2
+662 NoteOff chan=9 note=41 vel=0 # F2
+672 NoteOn chan=9 note=41 vel=80 # F2
+710 NoteOff chan=9 note=41 vel=0 # F2
+720 NoteOn chan=9 note=41 vel=80 # F2
+758 NoteOff chan=9 note=41 vel=0 # F2
+768 Meta 0xFF 0x2F 0x00 # End of Track
+
+# vim: sw=4 ts=4 wm=8 et ft=sh

@@ -1,0 +1,275 @@
+#if ! defined MIDI66_MIDI_MACRO_HPP
+#define MIDI66_MIDI_MACRO_HPP
+
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          macro.hpp
+ *
+ *  This module declares/defines the base class for handling MIDI control
+ *  I/O of the application.
+ *
+ * \library       midi66 application
+ * \author        C. Ahlstrom
+ * \date          2021-11-22
+ * \updates       2026-11-13
+ * \license       GNU GPLv2 or above
+ *
+ *  Provides the base class for midicontrolout.
+ */
+
+#include "cpp_types.hpp"                /* lib66::tokenization container    */
+#include "midi/midibytes.hpp"           /* midi::bytes data type, etc.      */
+
+namespace midi
+{
+
+/**
+ *  Represents a string of midi::bytes and provides the infrastructure for
+ *  reading them.
+ */
+
+class macro
+{
+    friend class macros;
+
+public:
+
+    /**
+     *  Provides a vector of vectors, each vector representing a MIDI
+     *  event.
+     */
+
+    using events = std::vector<midi::bytes>;
+
+    /**
+     * Indicates the type of file used to hold MIDI data.
+     */
+
+    enum class filetype
+    {
+        none,                           /* not associated with any file     */
+        ascii,                          /* a simple format (*.macro)        */
+        macros,                         /* a future format (*.macros)       */
+        raw                             /* binary data (any other extension */
+    };
+
+private:
+
+    /**
+     *  The name of the macro.  This is also the key value for putting the
+     *  macro in a container.
+     */
+
+    std::string m_name { };
+
+    /**
+     *  This is a list of tokens making up the macro. Although it can take up
+     *  extra space, it is useful to write the macro back to the configuration
+     *  file. It also allows putting multiple events into one macro.
+     *
+     *  Also see the tokenize() function in the strfunctions module.
+     */
+
+    lib66::tokenization m_tokens { };
+
+    /**
+     *  Indicates the macro has already been expanded and the bytes
+     *  are fine as is.
+     */
+
+    bool m_is_expanded { false };
+
+    /**
+     *  The number of events in the macro. Normally just one, unless
+     *  the vertical bar ("|") occurs in the list of tokens. If
+     *  data comes from a raw file, then this count is 1, and
+     *  m_events_bytes[0] contains the full list of midi::bytes to be
+     *  sent via this macro after expanding any macros it includes.
+     *  Now calculated as needed.
+     *
+     *      int m_event_count { 0 };
+     */
+
+    /**
+     *  Provides the midi::bytes for each separate event in a multiple-event
+     *  macro. Populated multiply if the separator bar ("|") was present.
+     *  Also includes expanded macros' bytes.
+     */
+
+    events m_event_bytes { };
+
+    /**
+     *  Is the macro good?  It is good if there is a name, if there's at least
+     *  one byte value or reference token, and the byte value isn't 0.
+     *  Even if invalid, the macro will be loaded and saved.
+     */
+
+    bool m_is_valid { false };
+
+    /**
+     *  If true, the first token in m_tokens[0] is "file:", and the
+     *  second is the file-name for storage of the data.
+     *
+     *  It can indicate that the data is too large, more than 6 x 3 bytes,
+     *  and needs to be saved to a file. We test the number of
+     *  expanded bytes (that would be saved to a line in the 'ctrl' file)
+     *  against this value. It's about 2 * 72.
+     *
+     *  But even small data can use a file, if the user wants it.
+     *
+     *      bool m_use_file_storage { false };
+     */
+
+    filetype m_file_type { filetype::none };
+
+    /**
+     *  Active file specification. Saved for the "Save" function.
+     *  Normally this will be a raw data file, not an ASCII text file.
+     *
+     *  Though we could support a file of this format:
+     *
+     *      Line 1:     "Macro rpnpitch"
+     *      Line > 1:   A long string of ASCII byte values ("0xff"),
+     *                  concatenated into one super long line, newlines
+     *                  ignored, with optional variables that can be
+     *                  expanded to get the bytes. Stored in m_tokens.
+     */
+
+    std::string m_file_name { };
+
+public:
+
+    macro () = default;
+    macro (const std::string & name, const std::string & values);
+    macro (const lib66::tokenization & name_and_tokens);
+    macro (const macro &) = default;
+    macro & operator = (const macro &) = default;
+    macro (macro &&) = default;
+    macro & operator = (macro &&) = default;
+    virtual ~macro () = default;
+
+    static const std::string & file_marker ();
+
+    const std::string & name () const
+    {
+        return m_name;
+    }
+
+    void name (const std::string & n)
+    {
+        m_name = n;
+    }
+
+    lib66::tokenization & tokens ()
+    {
+        return m_tokens;
+    }
+
+    const lib66::tokenization & tokens () const
+    {
+        return m_tokens;
+    }
+
+    lib66::tokenization bytes_to_lines () const;
+    std::string line () const;
+    midi::bytes bytes (int index = (-1)) const;
+    int byte_count () const;
+    void file_name (const std::string & s);
+
+    bool use_file_storage () const
+    {
+        return m_file_type != filetype::none;
+    }
+
+    const std::string & file_name () const
+    {
+        return m_file_name;
+    }
+
+
+    int event_count () const
+    {
+        return int(m_event_bytes.size());
+    }
+
+    bool is_expanded () const
+    {
+        return m_is_expanded;
+    }
+
+    bool is_valid () const
+    {
+        return m_is_valid;
+    }
+
+protected:
+
+    void is_expanded (bool flag)
+    {
+        m_is_expanded = flag;
+    }
+
+    /*
+     * Specifically for use in rpn::create_rpn_events().
+     */
+
+    void is_valid (bool flag)
+    {
+        m_is_valid = flag;
+    }
+
+    void file_type (filetype ft)
+    {
+        m_file_type = ft;
+    }
+
+    bool tokenize (const std::string & values);
+
+    void bytes (const midi::bytes & b)
+    {
+        push_bytes(b);
+    }
+
+    events & event_bytes_list ()
+    {
+        return m_event_bytes;
+    }
+
+    const events & event_bytes_list () const
+    {
+        return m_event_bytes;
+    }
+
+    void push_bytes (const midi::bytes & b)
+    {
+        m_event_bytes.push_back(b);
+    }
+
+};          // class macro
+
+}           // namespace midi
+
+#endif      // MIDI66_MIDI_MACRO_HPP
+
+/*
+ * macro.hpp
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=cpp
+ */

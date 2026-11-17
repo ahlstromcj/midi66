@@ -1,0 +1,67 @@
+#if ! defined MIDI66_CONFIG_H
+#define MIDI66_CONFIG_H
+
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          midi66-config.h (midi66-config.h.in)
+ *
+ *  This header file provide "HAVE" definitions based on detected C/C++
+ *  system header files.
+ *
+ * \library       midi66
+ * \author        Chris Ahlstrom
+ * \date          2022-07-01
+ * \updates       2026-11-17
+ * \license       GNU GPL v2 or above
+ *
+ *  This file is used mainly for system files and specific build options.  The
+ *  main build options are detected at build time via the platform_macros.h
+ *  module.
+ *
+ *  For information on this file, see
+ *
+ *      https://mesonbuild.com/Configuration.html
+ *
+ *  These #defines will define the macro value as True or False.
+ *  The proper way to test the macro is:
+ *
+ *      #if MIDI66_HAVE_SEMAPHORE_H
+ */
+
+#if ! defined HAVE_LIMITS_H
+#define HAVE_LIMITS_H                       @limits_h@
+#define HAVE_FCNTL_H                        @fcntl_h@
+#define HAVE_SEMAPHORE_H                    @semaphore_h@
+#endif
+
+/*
+ * For testing only.  Verify that build/include/midi66-config.h defines this
+ * macro as "False".
+ *
+ * #define MIDI66_HAVE_DUMMY_H      #dummy_h#    // at signs changed
+ */
+
+#endif          // MIDI66_CONFIG_H
+
+/*
+ * midi66-config.h (midi66-config.h.in)
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=c
+ */

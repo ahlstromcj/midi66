@@ -1,0 +1,11 @@
+Release Notes for Midi66 v. 0.1.0 2026-11-17
+
+- Refactoring from portions of the the Seq66 application and the
+  Rtl66 library.
+- Additional support for a text-based format similar to midicvt.
+- The initial release of the "mftranscript" application for
+  conversion between MIDI and text.
+
+See NEWS for more details, and ChangeLog.
+
+# vim: sw=4 ts=4 wm=15 et ft=sh

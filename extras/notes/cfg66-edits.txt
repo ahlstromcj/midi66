@@ -1,0 +1,14 @@
+commit 556cf61048fd1ca4a8cbe0b860c77f5faf9ac755
+Author: Chris <ahlstromcj@gmail.com>
+Date:   Mon Nov 2 13:10:29 2026 -0500
+
+    Fixed some warnings from clang scan-build.
+
+src/cfg/configfile.cpp
+src/session/climanager.cpp
+src/session/configuration.cpp
+src/util/filefunctions.cpp
+src/util/realpath.c
+src/util/strfunctions.cpp
+tests/bytevector_test.cpp
+tests/searchpath_test.cpp

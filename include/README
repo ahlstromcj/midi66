@@ -1,0 +1,12 @@
+Include Directory for the Midi66 library
+Chris Ahlstrom
+2024-04-28 to 2026-11-17
+
+Unlike the other "66" library projects, the "build macros" header file is
+nested in a sub-directory ("include/").
+
+Also note the midi66-config.h.in file, which gets parsed by Meson to create
+
+    midi66-config.h
+
+# vim: sw=4 ts=4 wm=8 et ft=sh

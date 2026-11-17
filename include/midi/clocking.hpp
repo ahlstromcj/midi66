@@ -1,0 +1,226 @@
+#if ! defined MIDI66_MIDI_CLOCKING_HPP
+#define MIDI66_MIDI_CLOCKING_HPP
+
+/*
+ *  This file is part of midi66.
+ *
+ *  midi66 is free software; you can redistribute it and/or modify it under the
+ *  terms of the GNU General Public License as published by the Free Software
+ *  Foundation; either version 2 of the License, or (at your option) any later
+ *  version.
+ *
+ *  midi66 is distributed in the hope that it will be useful, but WITHOUT ANY
+ *  WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ *  FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+ *  details.
+ *
+ *  You should have received a copy of the GNU General Public License along
+ *  with midi66; if not, write to the Free Software Foundation, Inc., 59 Temple
+ *  Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+/**
+ * \file          clocking.hpp
+ *
+ *  This module declares/defines the elements that are common to the Linux
+ *  and Windows implementations of MIDI support.
+ *
+ * \library       midi66 application
+ * \author        Chris Ahlstrom
+ * \date          2015-07-24
+ * \updates       2026-10-17
+ * \license       GNU GPLv2 or above
+ *
+ *  Defines the action and clocking enumerations.
+ */
+
+#include <string>                       /* std::string class                */
+
+namespace midi
+{
+
+/*
+ * Be aware that this namespace contains only two entities
+ */
+
+namespace clock
+{
+
+/**
+ *  Actions to perform with MIDI clocking.  Allow for consolidating
+ *  some functions to simplify the API.
+ *
+ * \var init
+ *      Initialize the MIDI clocking variables.
+ *
+ * \var start
+ *      Start emitting MIDI clock.
+ *
+ * \var continue_from
+ *      Continue the clock from the given tick.
+ *
+ * \var stop
+ *      Stop MIDI clock.
+ *
+ * \var emit
+ *      Emit MIDI clock at the given tick.
+ */
+
+enum class action
+{
+    init,
+    start,
+    continue_from,
+    stop,
+    emit
+};
+
+/**
+ *  A clock enumeration, as used in the File / Options / MIDI Clock dialog.
+ *  For savings in parameter usage, the enabling/disabling of input has
+ *  been added as a clocking "status".
+ *
+ * \var unavailable
+ *      This value indicates that a port defined in a port-map is not
+ *      present on the system.
+ *
+ * \var disabled
+ *      A new, currently-hidden value to indicate to ignore/disable an
+ *      output port.  If a port always fails to open, we want just to
+ *      ignore it.
+ *
+ * \var off
+ *      Corresponds to the "Off" selection in the MIDI Clock tab.  With
+ *      this setting, the MIDI Clock is disabled for the buss using this
+ *      setting.  Notes will still be sent that buss, of course.  Some
+ *      software synthesizers might require this setting in order to make
+ *      a sound.  Note: This value also doubles as "enabled" for inputs,
+ *      which don't support the concept of clocks. For inputs, any other
+ *      value is equivalent to "not inputing".
+ *
+ * \var pos
+ *      Corresponds to the "Pos" selection in the MIDI Clock tab.  With
+ *      this setting, MIDI Clock will be sent to this buss, and, if
+ *      playback is starting beyond tick 0, then MIDI Song Position and
+ *      MIDI Continue will also be sent on this buss.
+ *
+ * \var mod
+ *      Corresponds to the "Mod" selection in the MIDI Clock tab.  With
+ *      this setting, MIDI Clock and MIDI Start will be sent.  But
+ *      clocking won't begin until the Song Position has reached the start
+ *      modulo (in 1/16th notes) that is specified.
+ *
+ * \var max
+ *      Illegal value for terminator.  Follows our convention for enum
+ *      class maximums-out-of-bounds.
+ */
+
+enum class clocking
+{
+    unavailable = -2,               /* I/O port is not present on system    */
+    disabled    = -1,               /* I/O is disabled                      */
+    none        = 0,                /* I/O is enabled                       */
+    pos,                            /* send song position, then continue    */
+    mod,                            /* start clocking at the song position  */
+    max                             /* an illegal value                     */
+};
+
+}           // namespace clock
+
+/*
+ *  Inline free functions.
+ */
+
+inline clock::clocking
+int_to_clocking (int e)
+{
+    return e < static_cast<int>(clock::clocking::max) ?
+        static_cast<clock::clocking>(e) : clock::clocking::disabled ;
+}
+
+inline int
+clocking_to_int (clock::clocking e)
+{
+    return static_cast<int>
+    (
+        e == clock::clocking::max ? clock::clocking::disabled : e
+    );
+}
+
+inline clock::clocking
+bool_to_clocking (bool f)
+{
+    return f ? clock::clocking::none : clock::clocking::disabled ;
+}
+
+inline bool
+clock_is_enabled (clock::clocking c)
+{
+    return c == clock::clocking::pos || c == clock::clocking::mod;
+}
+
+inline bool
+clock_is_available (clock::clocking c)
+{
+    return c != clock::clocking::unavailable;
+}
+
+inline bool
+clock_is_mod (clock::clocking c)
+{
+    return c == clock::clocking::mod;
+}
+
+inline bool
+clock_is_pos (clock::clocking c)
+{
+    return c == clock::clocking::pos;
+}
+
+/**
+ *  Could call this function clocking_to_bool(), too.
+ */
+
+inline bool
+inputing_is_enabled (clock::clocking c)
+{
+    return c == clock::clocking::none;
+}
+
+inline bool
+output_is_enabled (clock::clocking c)
+{
+    return c == clock::clocking::none ||
+        c == clock::clocking::pos ||
+        c == clock::clocking::mod;
+}
+
+inline bool
+port_is_unavailable (clock::clocking c)
+{
+    return c == clock::clocking::unavailable;
+}
+
+inline bool
+port_is_disabled (clock::clocking c)
+{
+    return c == clock::clocking::disabled ||
+        c == clock::clocking::unavailable ;
+}
+
+/*
+ * Free function.
+ */
+
+extern std::string clocking_to_string (clock::clocking e);
+
+}           // namespace midi
+
+#endif      // MIDI66_MIDI_CLOCKING_HPP
+
+/*
+ * clocking.hpp
+ *
+ * vim: sw=4 ts=4 wm=4 et ft=cpp
+ */
+
