@@ -148,15 +148,6 @@ protected:
 
     virtual midi::track * create_track ();
     virtual bool finalize_track (midi::track * trk, int trkno);
-
-#if 0
-    virtual void clear () = 0;
-    virtual int read_header () = 0;
-    virtual bool put_track (/*const*/ midi::track & lst) = 0;
-    virtual bool put_track_events (/*const*/ midi::track & lst) = 0;
-    virtual bool put_header (int numtracks, int smfformat = 1) = 0;
-#endif
-
     virtual bool set_error (const std::string & msg);
 
     virtual void clear_errors ()

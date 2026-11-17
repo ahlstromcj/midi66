@@ -1,4 +1,4 @@
-# README for Library Midi66 0.1 2026-11-17
+# README for Library Midi66 0.2 2026-11-17
 
 __Midi66__ is a library for handling MIDI files and data. It derives
 from __Seq66__ and __Rtl66__, the code being pulled out for usage in

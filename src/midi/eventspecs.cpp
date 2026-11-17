@@ -420,13 +420,13 @@ midi::pulse
 extract_sysex
 (
     const std::string & line,
-    midi::bytes & bytedestination
+    midi::bytes & bytedest
 )
 {
     midi::pulse result { -1 };
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
-    bytedestination.clear();
+    bytedest.clear();
     for (const auto & t : tokens)
     {
         if (counter == 0)
@@ -446,7 +446,7 @@ extract_sysex
         {
             unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
             midi::byte b { midi::byte(ubyte) };
-            bytedestination.push_back(b);
+            bytedest.push_back(b);
         }
         ++counter;
     }
@@ -763,27 +763,7 @@ midi_event_to_string (const midi::event & ev)
         }
         else if (ev.is_meta())
         {
-#if 0
-            const midi::bytes & byts { ev.get_message().event_bytes() };
-            std::string ts { std::to_string(ev.timestamp()) };
-            std::string text { sysex_string(byts) };    /* also does meta   */
-            result = ts + " Meta " + text;
-
-            /*
-             * Now add a "#" comment further clarifying the event.
-             *
-             * FF <meta type> len data...
-             */
-
-            if (byts.size() >= 2)
-            {
-                midi::byte id { byts[1] };
-                std::string id_number_string { meta_label(id) };
-                result += " # " + id_number_string;
-            }
-#else
             result = meta_to_string(ev);
-#endif
         }
         else if (count == 3)            /* e.g. Song Position               */
         {
@@ -955,23 +935,23 @@ static const midi_format_map s_alt_meta_formats
 {
     /* No. Delta 0xFF  No.     Data */
 
-    { 0x00, "%d Meta SeqNumber %d"          },  /* ss ss (len == 2)         */
-    { 0x01, "%d Meta TextEvent %s"          },  /* len text                 */
-    { 0x02, "%d Meta Copyright %s"          },  /* len text                 */
-    { 0x03, "%d Meta TrackName %s"          },  /* len text                 */
-    { 0x04, "%d Meta Instrument %s"         },  /* len text                 */
-    { 0x05, "%d Meta Lyric %s"              },  /* len text                 */
-    { 0x06, "%d Meta Marker %s"             },  /* len text                 */
-    { 0x07, "%d Meta CuePoint %s"           },  /* len text                 */
-    { 0x08, "%d Meta ProgramName %s"        },  /* len text                 */
-    { 0x09, "%d Meta PortName %s"           },  /* len text                 */
-    { 0x20, "%d Meta MidiChannel %d"        },  /* cc obsolete              */
-    { 0x21, "%d Meta MidiPort %d"           },  /* pp obsolete,             */
-    { 0x2F, "%d Meta EndOfTrack"            },  /* len = 0                  */
-    { 0x51, "%d Meta SetTempo usec=%d"      },  /* tt tt tt (len = 3)       */
+    { 0x00, "%ld Meta SeqNumber %d"     },  /* ss ss (len == 2)         */
+    { 0x01, "%ld Meta TextEvent %s"     },  /* len text                 */
+    { 0x02, "%ld Meta Copyright %s"     },  /* len text                 */
+    { 0x03, "%ld Meta TrackName %s"     },  /* len text                 */
+    { 0x04, "%ld Meta Instrument %s"    },  /* len text                 */
+    { 0x05, "%ld Meta Lyric %s"         },  /* len text                 */
+    { 0x06, "%ld Meta Marker %s"        },  /* len text                 */
+    { 0x07, "%ld Meta CuePoint %s"      },  /* len text                 */
+    { 0x08, "%ld Meta ProgramName %s"   },  /* len text                 */
+    { 0x09, "%ld Meta PortName %s"      },  /* len text                 */
+    { 0x20, "%ld Meta MidiChannel %d"   },  /* cc obsolete              */
+    { 0x21, "%ld Meta MidiPort %d"      },  /* pp obsolete,             */
+    { 0x2F, "%ld Meta EndOfTrack"       },  /* len = 0                  */
+    { 0x51, "%ld Meta SetTempo usec=%d" },  /* tt tt tt (len = 3)       */
     {
         0x54,
-        "%d Meta SmpteOffset hr=%d mn=%d se=%d fr=%d ff=%d"     /* len = 5  */
+        "%ld Meta SmpteOffset hr=%d mn=%d se=%d fr=%d ff=%d"    /* len = 5  */
     },
     {
         /*
@@ -1029,17 +1009,51 @@ meta_type (const std::string & metaname)
     return result;
 }
 
+/**
+ *  See the code used in midi::event string_to_midi_event(), where
+ *  we choose to use extract_meta_ex() versus extract_meta().
+ *  The point is we need 0xFF <metatype> data.
+ *
+ *  In these meta-extraction functions, it is assumed the meta
+ *  type number has been obtained, and that bytedest has been
+ *  cleared.
+ */
+
 midi::pulse
-extract_meta_ex
+extract_seq_number
 (
+    int mtype,
     const std::string & line,
-    midi::bytes & bytedestination
+    midi::bytes & bytedest
 )
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int seqno;
+        int rc { sscantf(fmt, &delta, &seqno) };
+        if (rc == 2)
+        {
+            midi::byte mb { midi::to_byte(mtype) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(2);                      /* len    */
+            bytedest.push_back((seqno & 0xff00) >> 8);  /* ss lsb */
+            bytedest.push_back((seqno & 0x00ff);        /* ss msb */
+        }
+    }
+    return result;
+}
+
+midi::pulse
+extract_meta_ex (const std::string & line, midi::bytes & bytedest)
 {
     midi::pulse result { -1 };
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
-    bytedestination.clear();
+    bytedest.clear();
     if (tokens.size() < 3)
         return result;
 
@@ -1060,18 +1074,123 @@ extract_meta_ex
         }
         else if (counter == 2)
         {
-            // TODO look up the meta format and use sscanf
+            int mtype { meta_type(t) };
+//          int rc { -1 };
+            if (mtype >= 0)
+            {
+                midi::meta m { midi::to_meta(midi::byte(mtype)) };
+                switch (m)
+                {
+                case seq_number:
+
+                    result = extract_seq_number(mtype, line, bytedest);
+                    break;
+
+                case text_event:
+
+                    break;
+
+                case copyright:
+
+                    break;
+
+                case track_name:
+
+                    break;
+
+                case instrument:
+
+                    break;
+
+                case lyric:
+
+                    break;
+
+                case marker:
+
+                    break;
+
+                case cue_point:
+
+                    break;
+
+                case program_name:
+
+                    break;
+
+                case port_name:
+
+                    break;
+
+                case midi_channel:
+
+                    break;
+
+                case midi_port:
+
+                    break;
+
+                case end_of_track:
+
+                    break;
+
+                case set_tempo:
+
+                    break;
+
+                case smpte_offset:
+
+                    break;
+
+                case time_signature:
+
+                    break;
+
+                case key_signature:
+
+                    break;
+
+                case seq_spec:
+
+                    break;
         }
         else
         {
+#if 0
             unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
             midi::byte b { midi::byte(ubyte) };
-            bytedestination.push_back(b);
+            bytedest.push_back(b);
+#else
+#endif
         }
         ++counter;
     }
     return result;
 }
+
+std::string
+meta_to_string_ex (const midi::event & ev)
+{
+    const midi::bytes & byts { ev.get_message().event_bytes() };
+    std::string ts { std::to_string(ev.timestamp()) };
+    std::string text { sysex_string(byts) };    /* also does meta   */
+    std::string result { ts + " Meta " + text };
+
+    /*
+     * Now add a "#" comment further clarifying the event.
+     *
+     * FF <meta type> len data...
+     */
+
+    if (byts.size() >= 2)
+    {
+        midi::byte id { byts[1] };
+        std::string id_number_string { meta_label(id) };
+        result += " # " + id_number_string;
+    }
+    return result;
+}
+
 
 #else       // defined USE_EXTENDED_META_SPECS
 
@@ -1083,13 +1202,13 @@ midi::pulse
 extract_meta
 (
     const std::string & line,
-    midi::bytes & bytedestination
+    midi::bytes & bytedest
 )
 {
     midi::pulse result { -1 };
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
-    bytedestination.clear();
+    bytedest.clear();
     if (tokens.size() < 3)
         return result;
 
@@ -1119,7 +1238,7 @@ extract_meta
         {
             unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
             midi::byte b { midi::byte(ubyte) };
-            bytedestination.push_back(b);
+            bytedest.push_back(b);
         }
         ++counter;
     }

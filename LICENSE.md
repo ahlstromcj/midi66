@@ -1,4 +1,4 @@
-# __Midi66__ Licensing 0.1.0
+# __Midi66__ Licensing 0.2.0
 
 ## Copyright (c) 2026
 

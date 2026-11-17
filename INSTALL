@@ -1,4 +1,4 @@
-INSTALL for Midi66 v. 0.1.0 and above
+INSTALL for Midi66 v. 0.2.0 and above
 Chris Ahlstrom
 2026-10-17 to 2026-11-17
 
@@ -6,7 +6,7 @@ The Midi66 library is intended to replace the "midi" directories of
 the rtl66 project, for better encapsulation and re-use. It contains
 only the code needed to process MIDI data and MIDI files.
 
-Meson is the build system for the Midi66 library. Meson 1.1 and above is
+Meson is the build system for the Midi66 library. Meson 1.4 and above is
 required. The 'meson.options' file replaces 'meson_options.txt'.
 
 In order to simplify life, a POSIX shell script, 'work.sh', is provided.

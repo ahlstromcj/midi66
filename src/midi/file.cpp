@@ -24,7 +24,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2026-11-13
+ * \updates       2026-11-17
  * \license       GNU GPLv2 or above
  *
  *  A midi::file is file-header data plus the data in each of the tracks of
@@ -236,8 +236,7 @@ file::file
     midi::song & s,
     bool smf0split
 ) :
-    m_tune          (s),                /* accessor tune()                  */
-    m_file_spec     (filespec),
+    midi::filebase  (filespec, s),
     m_smf0_split    (smf0split)
 {
     // no other code needed
@@ -255,7 +254,7 @@ file::~file ()
 /**
  *  Creates the stream input, reads it into the "buffer", and then closes
  *  the file.  No file buffering needed on these beefy machines!  :-)
- *  As a side-effect, also sets m_file_size.
+ *  As a side-effect, also sets file-size.
  *
  *  We were using the assignment operator, but this caused an error using old
  *  32-bit debian stable, g++ 4.9 on one of our old laptops.  The assignment
@@ -277,11 +276,11 @@ file::~file ()
 bool
 file::parse (const std::string & tag)
 {
-    bool result { m_data.read(m_file_spec) };
+    bool result { m_data.read(file_spec()) };
     if (result)
     {
-        m_file_size = m_data.size();                /* just logged for now  */
-        util::file_message(tag, m_file_spec);
+        file_size(m_data.size());                   /* just logged for now  */
+        util::file_message(tag, file_spec());
         result = parse_smf_1();
     }
     return result;
@@ -338,12 +337,10 @@ file::read_header ()
         if (format == 0)
         {
             m_smf0_splitter.initialize();               /* SMF 0 support    */
-//          tune().smf_format(0);
         }
         else if (format == 1)
         {
             smf0_split(false);
-//          tune().smf_format(1);
         }
         else
         {
@@ -358,7 +355,6 @@ file::read_header ()
         midi::ushort trackcount { read_short() };
         midi::ushort fppqn { read_short() };
         file_ppqn(midi::ppqn(fppqn));
-//      tune().set_ppqn(file_ppqn());                   /* log into song    */
         tune().set_song_header(format, trackcount, fppqn);
         result = int(trackcount);
     }
@@ -616,7 +612,7 @@ file::put_header (int numtracks, int smfformat)
     put_long(6);                          /* Length of the header         */
     put_short(smfformat);                 /* MIDI Format 1 (or 0)         */
     put_short(numtracks);                 /* number of tracks             */
-    put_short(m_file_ppqn);               /* parts per quarter note       */
+    put_short(file_ppqn());               /* parts per quarter note       */
     return numtracks > 0;
 }
 
@@ -728,9 +724,9 @@ file::write (bool eventsonly)
         std::string caption { "Writing MIDI SMF " };
         caption += std::to_string(smfformat);
         caption += " MIDI file ";
-        caption += std::to_string(m_file_ppqn);
+        caption += std::to_string(file_ppqn());
         caption += " PPQN";
-        util::file_message(caption, m_file_spec);
+        util::file_message(caption, file_spec());
         for (int t = 0; t < trackhigh; ++t)
         {
             track::pointer trkptr { tune().get_track(t) };
@@ -753,7 +749,7 @@ file::write (bool eventsonly)
             }
         }
         if (result)
-            result = m_data.write(m_file_spec);
+            result = m_data.write(file_spec());
     }
     else
         result = set_error_dump("No patterns/tracks to write.");

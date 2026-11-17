@@ -27,12 +27,13 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2026-11-13
+ * \updates       2026-11-17
  * \license       GNU GPLv2 or above
  *
  *  This version is very basic, and does not include any Seq66 features.
  */
 
+#include "midi/filebase.hpp"            /* midi::filebase class             */
 #include "midi/splitter.hpp"            /* midi::splitter SMF 0 converter   */
 #include "midi/track.hpp"               /* midi::track raw midi container   */
 #include "midi/tracklist.hpp"           /* midi::tracklist vector of tracks */
@@ -48,29 +49,10 @@ namespace midi
  *  tracks specific to Seq24.  It does not, however, handle SYSEX events.
  */
 
-class file
+class file final : public filebase
 {
 
 private:
-
-    /**
-     *  The optional destination for global parameters obtained from the
-     *  MIDI file.
-     */
-
-    midi::song & m_tune;
-
-    /**
-     *  The tentative list of tracks.
-     */
-
-    tracklist m_track_list { };
-
-    /**
-     *  Holds the size of the MIDI file.
-     */
-
-    size_t m_file_size { 0 };
 
     /**
      *  Provides management code for handling big-endian data, which includes
@@ -78,18 +60,6 @@ private:
      */
 
     util::bytevector m_data { };
-
-    /**
-     *  The unchanging name of the MIDI file.
-     */
-
-    const std::string m_file_spec { };
-
-    /**
-     *  The value of the PPQN from the file itself.
-     */
-
-    int m_file_ppqn { 0 };
 
     /**
      *  Provides the ratio of the main PPQN to the file PPQN, for use with
@@ -134,29 +104,19 @@ public:
     virtual bool write (bool eventsonly = true);
     virtual bool parse (const std::string & tag = "");
 
-    const std::string & file_spec () const
-    {
-        return m_file_spec;
-    }
-
     const util::bytevector & data () const
     {
         return m_data;
     }
 
-    const std::string & error_message () const
+    virtual const std::string & error_message () const override
     {
         return m_data.error_message();
     }
 
-    bool error_is_fatal () const
+    virtual bool error_is_fatal () const override
     {
         return m_data.error_is_fatal();
-    }
-
-    int file_ppqn () const
-    {
-        return m_file_ppqn;
     }
 
     bool smf0_split () const
@@ -169,39 +129,14 @@ protected:
     virtual midi::track * create_track ();
     virtual bool finalize_track (midi::track * trk, int trkno);
 
-    midi::song & tune ()
-    {
-        return m_tune;
-    }
-
-    const midi::song & tune () const
-    {
-        return m_tune;
-    }
-
-    tracklist & track_list ()
-    {
-        return m_track_list;
-    }
-
-    const tracklist & track_list () const
-    {
-        return m_track_list;
-    }
-
     void clear ()
     {
         m_data.clear();
     }
 
-    void clear_errors ()
+    virtual void clear_errors () override
     {
         m_data.clear_errors();
-    }
-
-    void file_ppqn (int p)
-    {
-        m_file_ppqn = p;
     }
 
     void smf0_split (bool f)
@@ -257,17 +192,17 @@ protected:
     bool put_track_events (/*const*/ midi::track & lst);
     bool put_header (int numtracks, int smfformat = 1);
 
-    bool set_error (const std::string & msg) const
+    virtual bool set_error (const std::string & msg) override
     {
         return m_data.set_error(msg);
     }
 
-    bool set_error_dump (const std::string & msg) const
+    bool set_error_dump (const std::string & msg)
     {
         return m_data.set_error_dump(msg);
     }
 
-    bool set_error_dump (const std::string & msg, unsigned long p) const
+    bool set_error_dump (const std::string & msg, unsigned long p)
     {
         return m_data.set_error_dump(msg, p);
     }

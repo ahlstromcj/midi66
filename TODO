@@ -1,11 +1,12 @@
-TO DO for Midi66 0.1
+TO DO for Midi66 0.2
 Chris Ahlstrom
 2019-11-11 to 2026-11-17
 
-For version 0.1:
+For version 0.2:
 
     -   For meta events, allow "KeySig" (for example), to be read/written
         instead of 0xFF 0xMM. That is, increase human readability.
+    -   Add more files to the mftranscript and spectest tests.
 
 Fixes:
 

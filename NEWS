@@ -1,4 +1,4 @@
-NEWS for Midi66 0.1.0
+NEWS for Midi66 0.2.0
 Chris Ahlstrom
 2024-04-15 to 2026-11-17
 
@@ -7,7 +7,31 @@ This revision now works for ALSA and JACK MIDI and MIDI Clock I/O.
 
 # Changelog
 
-## [0.1.0] - 2025-10-17
+## [0.2.0] - 2025-11-17
+
+    This first version is meant to make meta events in a MIDI
+    transcript even more human-readable.
+
+    See the README.md for details and the TODO for the next changes.
+
+### Added
+
+- None.
+
+### Fixed
+
+- None.
+
+### Changed
+
+- Derived midi::file from midi::filebase, which is also the same base
+  class of midi::transcript.
+
+### Removed
+
+- None.
+
+## [0.1.0] - 2025-11-17
 
     This first version is somewhat complete, and usable/installable.
     See the README.md for details and the TODO for the next changes.
