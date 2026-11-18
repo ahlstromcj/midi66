@@ -28,7 +28,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2015-11-07
- * \updates       2026-10-28
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  *  These items were moved from the globals.h module so that only the modules
@@ -1019,7 +1019,7 @@ extern bool beats_per_bar_is_valid (int bpb);   /* TODO: backport to Seq66  */
 extern bool ppqn_is_valid (midi::pulse ppq);    /* TODO: backport to Seq66  */
 
 extern midi::bpm tempo_us_from_bytes (const midi::bytes & tt);
-extern bool tempo_us_to_bytes (midi::bytes & tt, midi::bpm tempo_us);
+extern bool tempo_us_to_bytes (midi::bytes & tt, midi::microsec tempo_us);
 extern midi::byte tempo_to_note_value (midi::bpm tempo);
 extern midi::bpm note_value_to_tempo (midi::byte tempo);
 extern midi::bpm fix_tempo (midi::bpm tempo);

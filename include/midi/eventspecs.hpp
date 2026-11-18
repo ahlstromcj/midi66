@@ -27,7 +27,7 @@
  * \library       midi66 library
  * \author        Chris Ahlstrom
  * \date          2026-10-21
- * \updates       2026-11-16
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  */
@@ -44,6 +44,8 @@
  */
 
 #undef MIDI66_SUPPORT_NOTE_SPECIFIC_EVENTSPECS
+
+#define USE_EXTENDED_META_SPECS // for testing
 
 namespace midi
 {
@@ -121,8 +123,73 @@ extern midi::pulse extract_meta
 extern std::string meta_to_string (const midi::event & ev);
 
 #if defined USE_EXTENDED_META_SPECS
+
+/*
+ * Could be considered private, but no need for that.
+ */
+
+extern std::string meta_format_ex (int metatype);
 extern std::string meta_name (int metatype);
 extern int meta_type (const std::string & metaname);
+extern midi::pulse extract_seq_number
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_text
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_obsolete    /* MIDI channel prefix and port */
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_end_of_track
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_set_tempo
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_smpte_offset
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_time_signature
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_key_signature
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_seq_spec
+(
+    const std::string & line,
+    midi::bytes & bytedest
+);
+extern midi::pulse extract_meta_ex
+(
+    const std::string & line,
+    midi::bytes & bytedest
+);
+
 #endif
 
 }           // namespace midi

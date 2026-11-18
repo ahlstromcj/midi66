@@ -199,8 +199,8 @@ enum class meta : midi::byte
     cue_point           = 0x07,     /* 0xFF 0x07 len text                   */
     program_name        = 0x08,     /* 0xFF 0x06 len text                   */
     port_name           = 0x09,     /* 0xFF 0x06 len text                   */
-    midi_channel        = 0x20,     /* 0xFF 0x20 cc obsolete, generic read  */
-    midi_port           = 0x21,     /* 0xFF 0x21 pp obsolete, generic read  */
+    midi_channel        = 0x20,     /* 0xFF 0x20 0x01 cc obsolete, prefix   */
+    midi_port           = 0x21,     /* 0xFF 0x21 0x01 pp obsolete, generic  */
     end_of_track        = 0x2F,     /* 0xFF 0x2F 00                         */
     set_tempo           = 0x51,     /* 0xFF 0x51 03 tt tt tt                */
     smpte_offset        = 0x54,     /* 0xFF 0x54 05 hr mn se fr ff          */

@@ -26,7 +26,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2026-10-20
- * \updates       2026-11-16
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  * std::string status_abbreviations (int m) uses these abbreviations:
@@ -103,13 +103,12 @@ string_to_midi_header
     int & ppqn_value
 )
 {
-    const char * source { CSTR(line) };
     int smffmt, trackct, ppq;
     int rc
     {
         std::sscanf
         (
-            source, CSTR(s_midi_header_format), &smffmt, &trackct, &ppq
+            CSTR(line), CSTR(s_midi_header_format), &smffmt, &trackct, &ppq
         )
     };
     bool result { rc == 3 };
@@ -367,8 +366,6 @@ midi::event
 string_to_note (const std::string & line)
 {
     static const char * fmt { "%ld %s chan=%d note=%d vel=%d" };
-
-    const char * source { CSTR(line) };
     long delta;
     char abbr [16];
     int channel;
@@ -376,7 +373,10 @@ string_to_note (const std::string & line)
     int velocity;
     int rc
     {
-        std::sscanf(source, fmt, &delta, abbr, &channel, &note, &velocity)
+        std::sscanf
+        (
+            CSTR(source), fmt, &delta, abbr, &channel, &note, &velocity
+        )
     };
     if (rc == 5)
     {
@@ -936,35 +936,45 @@ static const midi_format_map s_alt_meta_formats
     /* No. Delta 0xFF  No.     Data */
 
     { 0x00, "%ld Meta SeqNumber %d"     },  /* ss ss (len == 2)         */
-    { 0x01, "%ld Meta TextEvent %s"     },  /* len text                 */
-    { 0x02, "%ld Meta Copyright %s"     },  /* len text                 */
-    { 0x03, "%ld Meta TrackName %s"     },  /* len text                 */
-    { 0x04, "%ld Meta Instrument %s"    },  /* len text                 */
-    { 0x05, "%ld Meta Lyric %s"         },  /* len text                 */
-    { 0x06, "%ld Meta Marker %s"        },  /* len text                 */
-    { 0x07, "%ld Meta CuePoint %s"      },  /* len text                 */
-    { 0x08, "%ld Meta ProgramName %s"   },  /* len text                 */
-    { 0x09, "%ld Meta PortName %s"      },  /* len text                 */
+    { 0x01, "%ld Meta TextEvent '%s'"   },  /* len text                 */
+    { 0x02, "%ld Meta Copyright '%s'"   },  /* len text                 */
+    { 0x03, "%ld Meta TrackName '%s'"   },  /* len text                 */
+    { 0x04, "%ld Meta Instrument '%s'"  },  /* len text                 */
+    { 0x05, "%ld Meta Lyric '%s'"       },  /* len text                 */
+    { 0x06, "%ld Meta Marker '%s'"      },  /* len text                 */
+    { 0x07, "%ld Meta CuePoint '%s'"    },  /* len text                 */
+    { 0x08, "%ld Meta ProgramName '%s'" },  /* len text                 */
+    { 0x09, "%ld Meta PortName '%s'"    },  /* len text                 */
     { 0x20, "%ld Meta MidiChannel %d"   },  /* cc obsolete              */
     { 0x21, "%ld Meta MidiPort %d"      },  /* pp obsolete,             */
     { 0x2F, "%ld Meta EndOfTrack"       },  /* len = 0                  */
-    { 0x51, "%ld Meta SetTempo usec=%d" },  /* tt tt tt (len = 3)       */
+    { 0x51, "%ld Meta SetTempo usec=%g" },  /* tt tt tt (len = 3)       */
     {
         0x54,
         "%ld Meta SmpteOffset hr=%d mn=%d se=%d fr=%d ff=%d"    /* len = 5  */
     },
     {
         /*
-         * nn = numerator; dd = denominator; cc = MIDI clocks per metronome
-         * click (24 clock/qn); bb = 32nd notes/qn
+         * nn = numerator; dd = denominator as a 2-power; cc = MIDI clocks
+         * per metronome click (24 clock/qn); bb = 32nd notes/qn
+         *
+         * We could make it more readable, but then have to verify the
+         * beatwidth value. The following is too much, but we can
+         * use b/w notation for the time signature.
+         *
+         *  "%d Meta TimeSig beats=%d beatwidth=%d clocks=%d notes32=%d"
          */
 
         0x58,
-        "%d Meta TimeSig nn=%d dd=%d cc=%d bb=%d"               /* len = 4  */
+        "%d Meta TimeSig nn=%d/dd=%d cc=%d bb=%d"               /* len = 4  */
     },
     {
+        /*
+         * Key ranges from -7 to 7, major is 0 and 1 is minor.
+         */
+
         0x59,                                   /* -7-to-7 maj/min len == 2 */
-        "%d Meta KeySig accidental=%d mode=%d"
+        "%d Meta KeySig key=%d mode=%s"         /* mode is "major" "minor"  */
     },
     { 0x7F, "%d Meta SeqSpec %s"            }   /* data (len is variable)   */
 };
@@ -983,11 +993,12 @@ meta_format_ex (int metatype)
 std::string
 meta_name (int metatype)
 {
+    std::string result;
     std::string fmt { meta_format_ex(metatype) };
     if (! fmt.empty())
     {
         lib66::tokenization fmttokens { util::tokenize(fmt) };
-        result =  fmttokens[2];
+        result = fmttokens[2];
     }
     return result;
 }
@@ -1017,6 +1028,21 @@ meta_type (const std::string & metaname)
  *  In these meta-extraction functions, it is assumed the meta
  *  type number has been obtained, and that bytedest has been
  *  cleared.
+ *
+ * \param mtype
+ *      Integer version of the midi::meta meta-type value.
+ *
+ * \param line
+ *      The line of text to be converted into the delta time and
+ *      the set of bytes representing the event.
+ *
+ * \param [out] bytedest
+ *      The destination for the extracted bytes. Assumed to be clear
+ *      at function start.
+ *
+ * \return
+ *      Returns the delta time. If less than 0, then the bytes are
+ *      not usable.
  */
 
 midi::pulse
@@ -1033,19 +1059,399 @@ extract_seq_number
     {
         long delta;
         int seqno;
-        int rc { sscantf(fmt, &delta, &seqno) };
+        int rc { sscanf(CSTR(line), CSTR(fmt), &delta, &seqno) };
         if (rc == 2)
         {
-            midi::byte mb { midi::to_byte(mtype) };
+            midi::byte mb { midi::byte(mtype) };
             bytedest.push_back(0xFF);
             bytedest.push_back(mb);
-            bytedest.push_back(2);                      /* len    */
-            bytedest.push_back((seqno & 0xff00) >> 8);  /* ss lsb */
-            bytedest.push_back((seqno & 0x00ff);        /* ss msb */
+            bytedest.push_back(2);                              /* len      */
+            bytedest.push_back((seqno & 0xff00) >> 8);          /* ss lsb   */
+            bytedest.push_back(seqno & 0x00ff);                 /* ss msb   */
+            result = midi::pulse(delta);
         }
     }
     return result;
 }
+
+/**
+ *  Extracts meta text represented as ASCII characters enclosed in
+ *  single quotes. Since we cannot know the length ahead of time,
+ *  we can either over-allocate a buffer the length of the line
+ *  paramater, or scan the line by brute force. Let's do the latter.
+ */
+
+midi::pulse
+extract_meta_text
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta { util::string_to_long(line) };
+        auto qpos { line.find_first_of("'") };
+        if (qpos != std::string::npos)
+        {
+            auto lastqpos { line.find_last_of("'") };
+            if (lastqpos > (qpos + 1))                      /* 1 or more    */
+            {
+                std::string::size_type sz { lastqpos - qpos - 1 };
+                std::string text { line.substr(qpos, sz) };
+                midi::byte mb { midi::byte(mtype) };
+                midi::bytes lenbytes = long_to_vlv(midi::ulong(sz));
+                bytedest.push_back(0xFF);
+                bytedest.push_back(mb);
+                for (auto byt : lenbytes)
+                    bytedest.push_back(byt);                /* len          */
+
+                for (auto byt : text)
+                    bytedest.push_back(byt);                /* text         */
+
+                result = midi::pulse(delta);
+            }
+        }
+    }
+    return result;
+}
+
+/**
+ *  Use with the obsolete MIDI channel prefix and port events.
+ *  Some programs, such as Seq24 and Seq66, use a SeqSpec event to encode
+ *  them.
+ */
+
+midi::pulse
+extract_meta_obsolete
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int num;
+        int rc { sscanf(CSTR(line), CSTR(fmt), &delta, &num) };
+        if (rc == 2)
+        {
+            midi::byte mb { midi::byte(mtype) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(1);                              /* len      */
+            bytedest.push_back(midi::byte(num));
+            result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Extract the simple end-of-track event.
+ */
+
+midi::pulse
+extract_meta_end_of_track
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int rc { sscanf(CSTR(line), CSTR(fmt), &delta) };
+        if (rc == 1)
+        {
+            midi::byte mb { midi::byte(mtype) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(0);                              /* len      */
+            result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Extracts the tempo value in BPM, and converts it to the "tt tt tt" bytes.
+ */
+
+midi::pulse
+extract_meta_set_tempo
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        double bpminute;
+        int rc { sscanf(CSTR(line), CSTR(fmt), &delta, &bpminute) };
+        if (rc == 2 && bpminute >= 1.0)                         /* sanity   */
+        {
+            midi::byte mb { midi::byte(mtype) };
+            midi::microsec tempo_us
+            {
+                midi::tempo_us_from_bpm(midi::bpm(bpminute))
+            };
+            midi::bytes tempo_bytes;
+            bool ok { midi::tempo_us_to_bytes(tempo_bytes, tempo_us) };
+            if (ok)
+            {
+                bytedest.push_back(0xFF);
+                bytedest.push_back(mb);
+                bytedest.push_back(3);                          /* len      */
+                for (auto b : tempo_bytes)
+                    bytedest.push_back(b);
+
+                result = midi::pulse(delta);
+            }
+        }
+    }
+    return result;
+}
+
+/**
+ *  Extracts the tempo value in BPM, and converts it to the "tt tt tt" bytes.
+ */
+
+midi::pulse
+extract_meta_smpte_offset
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int hr, mn, se, fr, ff;
+        int rc
+        {
+            sscanf(CSTR(line), CSTR(fmt), &delta, &hr, &mn, &se, &fr, &ff)
+        };
+        if (rc == 6)
+        {
+            midi::byte mb { midi::byte(mtype) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(5);                          /* len      */
+            bytedest.push_back(midi::byte(hr));
+            bytedest.push_back(midi::byte(mn));
+            bytedest.push_back(midi::byte(se));
+            bytedest.push_back(midi::byte(fr));
+            bytedest.push_back(midi::byte(ff));
+            result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Extracts the time signature values, currently using the
+ *  nn/dd cc bb notation, with the except the dd is not a power
+ *  of two, but the actual denominator (2, 4, 8, 16, 32, ...).
+ */
+
+midi::pulse
+extract_meta_time_signature
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int nn, dd, cc, bb;
+        int rc
+        {
+            sscanf(CSTR(line), CSTR(fmt), &delta, &nn, &dd, &cc, &bb)
+        };
+        if (rc == 6 && midi::is_power_of_2(dd))
+        {
+            midi::byte mb { midi::byte(mtype) };
+            midi::byte dd2 { midi::byte(midi::log2_of_power_of_2(dd)) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(4);                          /* len      */
+            bytedest.push_back(midi::byte(nn));
+            bytedest.push_back(midi::byte(dd2));
+            bytedest.push_back(midi::byte(cc));
+            bytedest.push_back(midi::byte(bb));
+            result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  The number of sharps and flats in each major key follows a clear pattern
+ *  on the Circle of Fifths.
+ *
+ *  Sharp Major / Minor Keys:
+ *
+ *      C major: 0 sharps or flats (all natural notes)
+ *      G major / E minor: 1 sharp (F#)
+ *      D major / B minor: 2 sharps (F# C#)
+ *      A major / F# minor: 3 sharps (F# C# G#)
+ *      E major / C# minor: 4 sharps (F# C# G# D#)
+ *      B major / G# minor: 5 sharps (F# C# G# D# A#)
+ *      F# major / D# minor: 6 sharps (F# C# G# D# A# E#)
+ *      C# major / A# minor: 7 sharps (F# C# G# D# A# E# B#)
+ *
+ *  Flat Major / Minor Keys:
+ *
+ *      C major: 0 sharps or flats
+ *      F major: 1 flat (Bb)
+ *      Bb major: 2 flats (Bb Eb)
+ *      Eb major / C minor: 3 flats (Bb Eb Ab)
+ *      Ab major / F minor: 4 flats (Bb Eb Ab Db)
+ *      Db major / Bb minor: 5 flats (Bb Eb Ab Db Gb)
+ *      Gb major / Eb minor: 6 flats (Bb Eb Ab Db Gb Cb)
+ *      Cb major / Ab minor: 7 flats (Bb Eb Ab Db Gb Cb Fb)
+ *
+ *  Quick Rules to Remember:
+ *
+ *      Order of Sharps: F# C# G# D# A# E# B#
+ *      ("Father Charles Goes Down And Ends Battle")
+ *
+ *      Order of Flats: Bb Eb Ab Db Gb Cb Fb
+ *      (Mnemonic: "Battle Ends And Down Goes Charles Father")
+ *
+ *      Finding Sharp Keys: The key is a half-step above the last sharp in the
+ *      signature.
+ *
+ *      Finding Flat Keys: The key is the second-to-last flat in the signature
+ *      (with the exception of F major, which has one flat, Bb:
+ *
+ *  Having said all that, we're not totally sure of the above, so
+ *  we'll just use the number of sharps/flats.
+ *
+ *  However, we will use the strings "major" (0) and "minor" (1).
+ */
+
+midi::pulse
+extract_meta_key_signature
+(
+    int mtype,
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    std::string fmt { meta_format_ex(mtype) };  /* copying a short string   */
+    if (! fmt.empty())
+    {
+        long delta;
+        int sharpflats;
+        char majorminor [8];
+        int rc
+        {
+            sscanf(CSTR(line), CSTR(fmt), &delta, &sharpflats, majorminor)
+        };
+        if (rc == 3)
+        {
+            std::string mmstring { std::string(majorminor) };
+            int mm { mmstring == "minor" ? 1 : 0 };
+            midi::byte mb { midi::byte(mtype) };
+            bytedest.push_back(0xFF);
+            bytedest.push_back(mb);
+            bytedest.push_back(2);                          /* len      */
+            bytedest.push_back(midi::byte(sharpflats));     /* -7 to +7 */
+            bytedest.push_back(midi::byte(mb));
+            result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Extracts data from lines of the form:
+ *
+ *      "0 Meta SeqSpec 0xFF ... # comments".
+ */
+
+midi::pulse
+extract_meta_seq_spec
+(
+    const std::string & line,
+    midi::bytes & bytedest
+)
+{
+    midi::pulse result { -1 };
+    lib66::tokenization tokens { util::tokenize(line) };
+    std::size_t counter { 0 };
+    bytedest.clear();
+    if (tokens.size() < 3)
+        return result;
+
+    for (const auto & t : tokens)
+    {
+        /*
+         * Avoid handling non-numbers after the first three tokens.
+         */
+
+        if (counter > 2 && ! std::isxdigit(t[0]))
+            break;
+
+        if (counter == 0)
+        {
+            long ts { util::string_to_long(t) };
+            result = midi::pulse(ts);
+        }
+        else if (counter == 1)
+        {
+            if (t != "Meta")
+            {
+                result = (-1);
+                break;
+            }
+        }
+        else if (counter == 2)
+        {
+            if (t != "SeqSpec")
+            {
+                result = (-1);
+                break;
+            }
+        }
+        else
+        {
+            unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
+            midi::byte b { midi::byte(ubyte) };
+            bytedest.push_back(b);
+        }
+        ++counter;
+    }
+    return result;
+}
+
+/**
+ *  Provides a more human-readable alternative to extract_meta().
+ *  The former supports "style plain", the latter "style fancy".
+ */
 
 midi::pulse
 extract_meta_ex (const std::string & line, midi::bytes & bytedest)
@@ -1075,84 +1481,75 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
         else if (counter == 2)
         {
             int mtype { meta_type(t) };
-//          int rc { -1 };
             if (mtype >= 0)
             {
                 midi::meta m { midi::to_meta(midi::byte(mtype)) };
                 switch (m)
                 {
-                case seq_number:
+                case midi::meta::seq_number:
 
                     result = extract_seq_number(mtype, line, bytedest);
                     break;
 
-                case text_event:
+                case midi::meta::text_event:
+                case midi::meta::copyright:
+                case midi::meta::track_name:
+                case midi::meta::instrument:
+                case midi::meta::lyric:
+                case midi::meta::marker:
+                case midi::meta::cue_point:
+                case midi::meta::program_name:
+                case midi::meta::port_name:
 
+                    result = extract_meta_text(mtype, line, bytedest);
                     break;
 
-                case copyright:
+                case midi::meta::midi_channel:      /* channel prefix   */
+                case midi::meta::midi_port:
 
+                    result = extract_meta_obsolete(mtype, line, bytedest);
                     break;
 
-                case track_name:
+                case midi::meta::end_of_track:
 
+                    result = extract_meta_end_of_track(mtype, line, bytedest);
                     break;
 
-                case instrument:
+                case midi::meta::set_tempo:
 
+                    result = extract_meta_set_tempo(mtype, line, bytedest);
                     break;
 
-                case lyric:
+                case midi::meta::smpte_offset:
 
+                    result = extract_meta_smpte_offset(mtype, line, bytedest);
                     break;
 
-                case marker:
+                case midi::meta::time_signature:
 
+                    result = extract_meta_time_signature(mtype, line, bytedest);
                     break;
 
-                case cue_point:
+                case midi::meta::key_signature:
 
+                    result = extract_meta_key_signature(mtype, line, bytedest);
                     break;
 
-                case program_name:
+                case midi::meta::seq_spec:
 
+                    result = extract_meta_seq_spec(/*mtype,*/ line, bytedest);
                     break;
 
-                case port_name:
+                case midi::meta::meta_byte:
+
+                    /*
+                     * This is an error value. Handled to silence a
+                     * warning.
+                     */
 
                     break;
-
-                case midi_channel:
-
-                    break;
-
-                case midi_port:
-
-                    break;
-
-                case end_of_track:
-
-                    break;
-
-                case set_tempo:
-
-                    break;
-
-                case smpte_offset:
-
-                    break;
-
-                case time_signature:
-
-                    break;
-
-                case key_signature:
-
-                    break;
-
-                case seq_spec:
-
-                    break;
+                }
+            }
         }
         else
         {
@@ -1191,8 +1588,7 @@ meta_to_string_ex (const midi::event & ev)
     return result;
 }
 
-
-#else       // defined USE_EXTENDED_META_SPECS
+#endif      // defined USE_EXTENDED_META_SPECS
 
 /**
  *  Extracts data from lines of the form "0 Meta 0xFF ... # comments".
@@ -1267,8 +1663,6 @@ meta_to_string (const midi::event & ev)
     }
     return result;
 }
-
-#endif      // defined USE_EXTENDED_META_SPECS
 
 }           // namespace midi
 

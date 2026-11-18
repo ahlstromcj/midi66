@@ -25,7 +25,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2015-11-07
- * \updates       2026-11-01
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  *  This code was moved from the globals module so that other modules
@@ -1432,9 +1432,9 @@ tempo_us_from_bytes (const midi::bytes & tt)
  */
 
 bool
-tempo_us_to_bytes (midi::bytes & tt, midi::bpm tempo_us)
+tempo_us_to_bytes (midi::bytes & tt, midi::microsec tempo_us)
 {
-    bool result { tempo_us > 0.0 };
+    bool result { tempo_us >= 1.0 };
     tt.clear();
     if (result)
     {
