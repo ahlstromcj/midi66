@@ -27,7 +27,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-07
- * \updates       2026-11-16
+ * \updates       2026-11-19
  * \license       GNU GPLv2 or above
  *
  *  This version is very basic, and does not include any Seq66 features.
@@ -80,17 +80,17 @@ public:
         return "%Midi66 Transcript";
     }
 
-protected:
+    std::string plain_style () const
+    {
+        return "%Style plain";
+    }
 
-#if 0
-    virtual midi::track * create_track ();
-    virtual bool finalize_track (midi::track * trk, int trkno);
-    virtual void clear () = 0;
-    virtual int read_header () = 0;
-    virtual bool put_track (/*const*/ midi::track & lst) = 0;
-    virtual bool put_track_events (/*const*/ midi::track & lst) = 0;
-    virtual bool put_header (int numtracks, int smfformat = 1) = 0;
-#endif
+    std::string fancy_style () const
+    {
+        return "%Style fancy";
+    }
+
+protected:
 
     lib66::tokenization & lines ()
     {

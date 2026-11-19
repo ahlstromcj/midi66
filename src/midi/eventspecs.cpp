@@ -26,7 +26,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2026-10-20
- * \updates       2026-11-18
+ * \updates       2026-11-19
  * \license       GNU GPLv2 or above
  *
  * std::string status_abbreviations (int m) uses these abbreviations:
@@ -72,6 +72,24 @@
 
 namespace midi
 {
+
+/**
+ *  Sets the style, either plain or fancy.
+ */
+
+static bool s_spec_style_is_fancy { true };
+
+void
+set_spec_fancy (bool fancy)
+{
+    s_spec_style_is_fancy = fancy;
+}
+
+bool
+spec_fancy ()
+{
+    return s_spec_style_is_fancy;
+}
 
 /**
  *  MIDI File Header.
@@ -661,7 +679,9 @@ string_to_midi_event (const std::string & line)
 
         case midi::status::meta_msg:
 
-            delta = extract_meta(line, byts);
+            delta = spec_fancy() ?
+                extract_meta_ex(line, byts) : extract_meta(line, byts) ;
+
             if (delta >= 0 && byts.size() > 2)  /* need at least 3 bytes    */
             {
                 midi::meta metatype { to_meta(byts[1]) };
@@ -763,7 +783,8 @@ midi_event_to_string (const midi::event & ev)
         }
         else if (ev.is_meta())
         {
-            result = meta_to_string(ev);
+            result = spec_fancy() ?
+                meta_to_string_ex(ev) : meta_to_string(ev) ;
         }
         else if (count == 3)            /* e.g. Song Position               */
         {
@@ -1046,7 +1067,7 @@ meta_type (const std::string & metaname)
  */
 
 midi::pulse
-extract_seq_number
+extract_meta_seq_number
 (
     int mtype,
     const std::string & line,
@@ -1069,6 +1090,40 @@ extract_seq_number
             bytedest.push_back((seqno & 0xff00) >> 8);          /* ss lsb   */
             bytedest.push_back(seqno & 0x00ff);                 /* ss msb   */
             result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  This function (and the other meta function) assume that the event
+ *  has already been verified to be a meta event.
+ *
+ *  For the numeric events, we can use snprintf().
+ */
+
+std::string
+meta_seq_number_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            const midi::bytes & evbytes { ev.event_bytes() };
+            if (evbytes.size() == 5)                /* FF 00 02 ss ss       */
+            {
+                long delta { long(ev.timestamp()) };
+                int seqno { int(evbytes[3]) << 8 };
+                seqno += int(evbytes[4]);
+
+                char tmp [32];
+                (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, seqno);
+                result = std::string(tmp);
+            }
         }
     }
     return result;
@@ -1120,6 +1175,39 @@ extract_meta_text
 }
 
 /**
+ *
+ */
+
+std::string
+meta_text_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            const midi::bytes & evbytes { ev.event_bytes() };
+            int index { 0 };                        /* start of len         */
+            midi::ulong len { ev.meta_length(index) };
+            int counter { 0 };
+            (void) len;
+            for (auto b : evbytes)
+            {
+                if (counter >= index)
+                {
+                    result += char(b);
+                }
+                ++counter;
+            }
+        }
+    }
+    return result;
+}
+
+/**
  *  Use with the obsolete MIDI channel prefix and port events.
  *  Some programs, such as Seq24 and Seq66, use a SeqSpec event to encode
  *  them.
@@ -1154,6 +1242,39 @@ extract_meta_obsolete
 }
 
 /**
+ *  This function (and the other meta function) assume that the event
+ *  has already been verified to be a meta event.
+ *
+ *  For the numeric events, we can use snprintf().
+ */
+
+std::string
+meta_obsolete_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            const midi::bytes & evbytes { ev.event_bytes() };
+            if (evbytes.size() == 3)                /* FF 00 02 ss ss       */
+            {
+                long delta { long(ev.timestamp()) };
+                int cpno { int(evbytes[2]) };
+
+                char tmp [32];
+                (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, cpno);
+                result = std::string(tmp);
+            }
+        }
+    }
+    return result;
+}
+
+/**
  *  Extract the simple end-of-track event.
  */
 
@@ -1178,6 +1299,30 @@ extract_meta_end_of_track
             bytedest.push_back(mb);
             bytedest.push_back(0);                              /* len      */
             result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+/**
+ *  Very simple.
+ */
+
+std::string
+meta_end_of_track_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            char tmp [32];
+            (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta);
+            result = std::string(tmp);
         }
     }
     return result;
@@ -1226,6 +1371,27 @@ extract_meta_set_tempo
     return result;
 }
 
+std::string
+meta_set_tempo_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            double bpminute { double(ev.tempo()) };
+            char tmp [32];
+            (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, bpminute);
+            result = std::string(tmp);
+        }
+    }
+    return result;
+}
+
 /**
  *  Extracts the tempo value in BPM, and converts it to the "tt tt tt" bytes.
  */
@@ -1260,6 +1426,35 @@ extract_meta_smpte_offset
             bytedest.push_back(midi::byte(fr));
             bytedest.push_back(midi::byte(ff));
             result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+std::string
+meta_smpte_offset_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            const midi::bytes & evbytes { ev.event_bytes() };
+            int hr { int(evbytes[2]) };
+            int mn { int(evbytes[3]) };
+            int se { int(evbytes[4]) };
+            int fr { int(evbytes[5]) };
+            int ff { int(evbytes[6]) };
+            char tmp [80];
+            (void) snprintf
+            (
+                tmp, sizeof tmp, CSTR(fmt), delta, hr, mn, se, fr, ff
+            );
+            result = std::string(tmp);
         }
     }
     return result;
@@ -1301,6 +1496,34 @@ extract_meta_time_signature
             bytedest.push_back(midi::byte(cc));
             bytedest.push_back(midi::byte(bb));
             result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+std::string
+meta_time_signature_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            const midi::bytes & evbytes { ev.event_bytes() };
+            int nn { int(evbytes[2]) };
+            int dd { int(evbytes[3]) };
+            int cc { int(evbytes[4]) };
+            int bb { int(evbytes[5]) };
+            char tmp [80];
+            (void) snprintf
+            (
+                tmp, sizeof tmp, CSTR(fmt), delta, nn, dd, cc, bb
+            );
+            result = std::string(tmp);
         }
     }
     return result;
@@ -1380,8 +1603,35 @@ extract_meta_key_signature
             bytedest.push_back(mb);
             bytedest.push_back(2);                          /* len      */
             bytedest.push_back(midi::byte(sharpflats));     /* -7 to +7 */
-            bytedest.push_back(midi::byte(mb));
+            bytedest.push_back(midi::byte(mm));
             result = midi::pulse(delta);
+        }
+    }
+    return result;
+}
+
+std::string
+meta_key_signature_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            const midi::bytes & evbytes { ev.event_bytes() };
+            int keyno { int(char(evbytes[2])) };
+            int modeno { int(char(evbytes[3])) };
+            std::string mode { modeno == 0 ? "major" : "minor" };
+            char tmp [80];
+            (void) snprintf
+            (
+                tmp, sizeof tmp, CSTR(fmt), delta, keyno, CSTR(mode)
+            );
+            result = std::string(tmp);
         }
     }
     return result;
@@ -1448,6 +1698,58 @@ extract_meta_seq_spec
     return result;
 }
 
+static std::string
+expand_bytes
+(
+    const midi::bytes & vbytes,
+    int start                       /* re 0 */
+)
+{
+    static const char * fmt { "0x%02x" };
+    std::string result;
+    int counter { 0 };
+    for (auto b : vbytes)
+    {
+        if (counter >= start)
+        {
+            char tmp [8];
+            if (counter > start)
+                result.push_back(' ');
+
+            (void) snprintf(tmp, sizeof tmp, fmt, unsigned(b));
+            result += tmp;
+        }
+        ++counter;
+    }
+    return result;
+}
+
+/**
+ * 0x7F, "%d Meta SeqSpec %s"
+ */
+
+std::string
+meta_seq_spec_to_string (const midi::event & ev)
+{
+    std::string result;
+    midi::byte mb { ev.meta_byte() };
+    if (is_valid_meta_byte(mb))
+    {
+        int mtype { int(ev.meta_byte()) };
+        std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+        if (! fmt.empty())
+        {
+            long delta { long(ev.timestamp()) };
+            const midi::bytes & evbytes { ev.event_bytes() };
+            std::string data { expand_bytes(evbytes, 2) };
+            result += std::to_string(delta);
+            result += " Meta SeqSpec ";
+            result += data;
+        }
+    }
+    return result;
+}
+
 /**
  *  Provides a more human-readable alternative to extract_meta().
  *  The former supports "style plain", the latter "style fancy".
@@ -1488,7 +1790,7 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
                 {
                 case midi::meta::seq_number:
 
-                    result = extract_seq_number(mtype, line, bytedest);
+                    result = extract_meta_seq_number(mtype, line, bytedest);
                     break;
 
                 case midi::meta::text_event:
@@ -1540,6 +1842,7 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
                     result = extract_meta_seq_spec(/*mtype,*/ line, bytedest);
                     break;
 
+                case midi::meta::illegal:
                 case midi::meta::meta_byte:
 
                     /*
@@ -1568,22 +1871,73 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
 std::string
 meta_to_string_ex (const midi::event & ev)
 {
-    const midi::bytes & byts { ev.get_message().event_bytes() };
-    std::string ts { std::to_string(ev.timestamp()) };
-    std::string text { sysex_string(byts) };    /* also does meta   */
-    std::string result { ts + " Meta " + text };
-
-    /*
-     * Now add a "#" comment further clarifying the event.
-     *
-     * FF <meta type> len data...
-     */
-
-    if (byts.size() >= 2)
+    std::string result;
+    midi::meta m { ev.meta_type() };
+    switch (m)
     {
-        midi::byte id { byts[1] };
-        std::string id_number_string { meta_label(id) };
-        result += " # " + id_number_string;
+    case midi::meta::seq_number:
+
+        result = meta_seq_number_to_string(ev);
+        break;
+
+    case midi::meta::text_event:
+    case midi::meta::copyright:
+    case midi::meta::track_name:
+    case midi::meta::instrument:
+    case midi::meta::lyric:
+    case midi::meta::marker:
+    case midi::meta::cue_point:
+    case midi::meta::program_name:
+    case midi::meta::port_name:
+
+        result = meta_text_to_string(ev);
+        break;
+
+    case midi::meta::midi_channel:      /* channel prefix   */
+    case midi::meta::midi_port:
+
+        result = meta_obsolete_to_string (ev);
+        break;
+
+    case midi::meta::end_of_track:
+
+        result = meta_end_of_track_to_string (ev);
+        break;
+
+    case midi::meta::set_tempo:
+
+        result = meta_set_tempo_to_string (ev);
+        break;
+
+    case midi::meta::smpte_offset:
+
+        result = meta_smpte_offset_to_string (ev);
+        break;
+
+    case midi::meta::time_signature:
+
+        result = meta_time_signature_to_string (ev);
+        break;
+
+    case midi::meta::key_signature:
+
+        result = meta_key_signature_to_string (ev);
+        break;
+
+    case midi::meta::seq_spec:
+
+        result = meta_seq_spec_to_string (ev);
+        break;
+
+    case midi::meta::illegal:
+    case midi::meta::meta_byte:
+
+        /*
+         * This is an error value. Handled to silence a
+         * warning.
+         */
+
+        break;
     }
     return result;
 }

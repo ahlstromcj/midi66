@@ -28,7 +28,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2026-11-10
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  *  This module also declares/defines the various constants, status-byte
@@ -204,10 +204,11 @@ enum class meta : midi::byte
     end_of_track        = 0x2F,     /* 0xFF 0x2F 00                         */
     set_tempo           = 0x51,     /* 0xFF 0x51 03 tt tt tt                */
     smpte_offset        = 0x54,     /* 0xFF 0x54 05 hr mn se fr ff          */
-    time_signature      = 0x58,     /* 0xFF 0x58 nn dd cc bb                */
+    time_signature      = 0x58,     /* 0xFF 0x58 04 nn dd cc bb             */
     key_signature       = 0x59,     /* 0xFF 0x59 0x02 <-7-to-7> <maj/min>   */
     seq_spec            = 0x7F,     /* 0xFF 0x7F len data                   */
-    meta_byte           = 0xFF      /* illegal; needed to detect meta       */
+    illegal             = 0x80,     /* 0xFF 0x80 is illegal                 */
+    meta_byte           = 0xFF      /* needed to detect meta                */
 };
 
 inline midi::byte
@@ -226,6 +227,13 @@ inline bool
 is_meta (midi::byte b)
 {
     return to_status(b) == midi::status::meta_msg;
+}
+
+inline bool
+is_valid_meta_byte (midi::byte b)
+{
+    midi::byte ill { to_byte(midi::meta::illegal) };
+    return b < ill;
 }
 
 inline bool

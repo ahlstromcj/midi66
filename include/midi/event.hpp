@@ -28,7 +28,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2015-07-24
- * \updates       2026-11-10
+ * \updates       2026-11-18
  * \license       GNU GPLv2 or above
  *
  *  This module also declares/defines the various constants, status-byte
@@ -332,6 +332,234 @@ public:
         m_message.jack_stamp(double(time));
     }
 
+    void set_status (midi::status s)
+    {
+        if (m_message.size() == 0)
+            m_message.push(s);
+        else
+            m_message[0] = midi::to_byte(s);
+    }
+
+    /**
+     *  Note that we have ensured that status ranges from 0x80 to 0xFF.
+     *  And recently, the status now holds the channel, redundantly.
+     *  Unless the event is a meta event, in which case the channel is the
+     *  number of the event.  We can return the bare status, or status with
+     *  the channel stripped, for channel messages.
+     */
+
+    midi::byte status_byte () const
+    {
+        return m_message[0];
+    }
+
+    /**
+     *  Used for 1-data-byte events.
+     */
+
+    void set_data (midi::byte d0)
+    {
+        if (m_message.size() >= 2)
+            m_message[1] = mask_data(d0);
+    }
+
+    /**
+     *  Retrieves the two data bytes from m_message[] and copies each into its
+     *  respective parameter.
+     *
+     * \param d0 [out]
+     *      The return reference for the first byte.
+     *
+     * \param d1 [out]
+     *      The return reference for the first byte.
+     */
+
+    void get_data (midi::byte & d0, midi::byte & d1) const
+    {
+        d0 = m_message[1];
+        d1 = m_message[2];
+    }
+
+    /*
+     *  The size of the message, including every byte from F0 to F7.
+     *
+     *  Compare to meta_data_size().
+     */
+
+    std::size_t sysex_msg_size () const
+    {
+        return is_sysex() ? m_message.event_byte_count() : 0 ;
+    }
+
+    midi::ulong meta_length (int & index) const
+    {
+        return m_message.meta_length(index);
+    }
+
+    /**
+     *  Sets the note velocity, which is held in the second data byte, and
+     *  clearing off the most-significant-bit, storing it in m_message[1].
+     *
+     * \param vel
+     *      Provides the velocity value to set.
+     */
+
+    void note_velocity (int vel)
+    {
+        m_message[2] = mask_data(midi::byte(vel));
+    }
+
+    /**
+     *  Sets the event to a clock event.
+     */
+
+    void make_clock ()
+    {
+        m_message.clear();
+        m_message.push(midi::to_byte(status::clk_clock));
+    }
+
+    /**
+     *  Hmmmmm, I can't remember the semantics of this one!
+     */
+
+    midi::byte data (int index) const    /* index not checked, for speed */
+    {
+        return m_message[index + 1];
+    }
+
+    /**
+     *  Assuming m_message[] holds a note, get the note number, which is in the
+     *  first data byte, m_message[1].
+     */
+
+    midi::byte get_note () const
+    {
+        return m_message[1];
+    }
+
+    /**
+     *  Sets the note number, clearing off the most-significant-bit and
+     *  assigning it to the first data byte, m_message[0].
+     *
+     * \param note
+     *      Provides the note value to set.
+     */
+
+    void set_note (midi::byte note)
+    {
+        m_message[1] = mask_data(note);
+    }
+
+    /**
+     *  The putative size of the meta data in "FF nn len metabytes".
+     *  This value is the third byte.
+     */
+
+    std::size_t meta_size () const
+    {
+        return is_meta() ? std::size_t(m_message[2]) : 0 ;
+    }
+
+    /**
+     *  The size of the message, including the "FF xx len" values.
+     *
+     *  Compare to sysex_size().
+     */
+
+    std::size_t meta_msg_size () const
+    {
+        return is_meta() ? std::size_t(m_message.event_byte_count()) : 0 ;
+    }
+
+    void set_sysex_size (std::size_t len)
+    {
+        if (len == 0)
+            m_message.clear();
+        else
+            m_message.resize(len);
+    }
+
+    midi::byte get_byte (std::size_t i) const
+    {
+        return i < m_message.size() ? m_message[i] : 0 ;  /* or is F7 better? */
+    }
+
+    std::size_t message_size () const
+    {
+        return m_message.event_byte_count();
+    }
+
+    const midi::bytes & event_bytes () const
+    {
+        return m_message.event_bytes();
+    }
+
+    void reset_sysex ()
+    {
+        m_message.clear();
+
+        /*
+         * No need for this, as the byte set starts with status::sysex
+         * anyway.
+         *
+         * m_message.push(midi::to_byte(status::sysex));
+         */
+    }
+
+    midi::message & get_message ()
+    {
+        return m_message;
+    }
+
+    const midi::message & get_message () const
+    {
+        return m_message;
+    }
+
+    /**
+     *  Two alternative getters for the data bytes.  Useful for one-offs.
+     */
+
+    midi::byte d0 () const
+    {
+        return m_message[1];
+    }
+
+    void d0 (midi::byte b)
+    {
+        m_message[1] = b;
+    }
+
+    midi::byte d1 () const
+    {
+        return m_message[2];    /* message::op[] checks byte-count first    */
+    }
+
+    void d1 (midi::byte b)
+    {
+        m_message[1] = b;
+    }
+
+
+    /**
+     *  Retrieves only the first data byte from m_message[] and copies it into
+     *  the parameter.
+     *
+     * \param d0 [out]
+     *      The return reference for the first byte.
+     */
+
+    void get_data (midi::byte & d0) const
+    {
+        d0 = m_message[1];
+    }
+
+    void clear_bytes ()
+    {
+        m_message.clear();
+    }
+
     midi::pulse timestamp () const
     {
         return m_timestamp;
@@ -342,9 +570,18 @@ public:
         return m_channel;
     }
 
+    /*
+     * midi::meta::meta_byte is 0xFF and is not a legal meta type.
+     */
+
     midi::byte meta_byte () const
     {
-        return is_meta() ? m_channel : to_byte(meta::meta_byte) ;
+        return is_meta() ? m_channel : to_byte(meta::illegal) ;
+    }
+
+    midi::meta meta_type () const
+    {
+        return is_meta() ? to_meta(m_channel) : meta::illegal ;
     }
 
 public:
@@ -364,14 +601,6 @@ public:
             m_timestamp %= modtick;
     }
 
-    void set_status (midi::status s)
-    {
-        if (m_message.size() == 0)
-            m_message.push(s);
-        else
-            m_message[0] = midi::to_byte(s);
-    }
-
     void set_status (midi::byte s);
     void set_channel (midi::byte channel);
     void set_channel_status (midi::byte eventcode, midi::byte channel);
@@ -388,19 +617,6 @@ public:
 #endif
     bool set_midi_event (midi::pulse timestamp, const midi::bytes & byts);
     bool set_midi_event (const midi::message & msg);
-
-    /**
-     *  Note that we have ensured that status ranges from 0x80 to 0xFF.
-     *  And recently, the status now holds the channel, redundantly.
-     *  Unless the event is a meta event, in which case the channel is the
-     *  number of the event.  We can return the bare status, or status with
-     *  the channel stripped, for channel messages.
-     */
-
-    midi::byte status_byte () const
-    {
-        return m_message[0];
-    }
 
     /*
      *  This function may strip the channel nybble.
@@ -468,16 +684,6 @@ public:
         return is_null_channel(channel()) || midi::byte(ch) == channel();
     }
 
-    /**
-     *  Used for 1-data-byte events.
-     */
-
-    void set_data (midi::byte d0)
-    {
-        if (m_message.size() >= 2)
-            m_message[1] = mask_data(d0);
-    }
-
     void set_data (midi::byte d0, midi::byte d1);
 
     /**
@@ -490,11 +696,6 @@ public:
         midi::byte d0, midi::byte d1
     );
 
-    void clear_bytes ()
-    {
-        m_message.clear();
-    }
-
     /**
      *  Clears a note-link. Does not (yet) touch the note to which it was
      *  linked.
@@ -504,60 +705,6 @@ public:
     {
         unmark();           // DO WE REALLY NEED THIS HERE?
         unlink();
-    }
-
-    /**
-     *  Retrieves only the first data byte from m_message[] and copies it into
-     *  the parameter.
-     *
-     * \param d0 [out]
-     *      The return reference for the first byte.
-     */
-
-    void get_data (midi::byte & d0) const
-    {
-        d0 = m_message[1];
-    }
-
-    /**
-     *  Retrieves the two data bytes from m_message[] and copies each into its
-     *  respective parameter.
-     *
-     * \param d0 [out]
-     *      The return reference for the first byte.
-     *
-     * \param d1 [out]
-     *      The return reference for the first byte.
-     */
-
-    void get_data (midi::byte & d0, midi::byte & d1) const
-    {
-        d0 = m_message[1];
-        d1 = m_message[2];
-    }
-
-    /**
-     *  Two alternative getters for the data bytes.  Useful for one-offs.
-     */
-
-    midi::byte d0 () const
-    {
-        return m_message[1];
-    }
-
-    void d0 (midi::byte b)
-    {
-        m_message[1] = b;
-    }
-
-    midi::byte d1 () const
-    {
-        return m_message[2];    /* message::op[] checks byte-count first    */
-    }
-
-    void d1 (midi::byte b)
-    {
-        m_message[1] = b;
     }
 
     /**
@@ -617,38 +764,6 @@ public:
         return append_sysex(bdata.data(), count);
     }
 
-    void reset_sysex ()
-    {
-        m_message.clear();
-
-        /*
-         * No need for this, as the byte set starts with status::sysex
-         * anyway.
-         *
-         * m_message.push(midi::to_byte(status::sysex));
-         */
-    }
-
-    midi::message & get_message ()
-    {
-        return m_message;
-    }
-
-    const midi::message & get_message () const
-    {
-        return m_message;
-    }
-
-    midi::byte get_byte (std::size_t i) const
-    {
-        return i < m_message.size() ? m_message[i] : 0 ;  /* or is F7 better? */
-    }
-
-    std::size_t message_size () const
-    {
-        return m_message.event_byte_count();
-    }
-
     std::size_t event_size () const;
 
     /**
@@ -675,46 +790,6 @@ public:
     {
         reset_sysex();
         return append_sysex(data, data.size());
-    }
-
-    void set_sysex_size (std::size_t len)
-    {
-        if (len == 0)
-            m_message.clear();
-        else
-            m_message.resize(len);
-    }
-
-    /*
-     *  The size of the message, including every byte from F0 to F7.
-     *
-     *  Compare to meta_data_size().
-     */
-
-    std::size_t sysex_msg_size () const
-    {
-        return is_sysex() ? m_message.event_byte_count() : 0 ;
-    }
-
-    /**
-     *  The putative size of the meta data in "FF nn len metabytes".
-     *  This value is the third byte.
-     */
-
-    std::size_t meta_size () const
-    {
-        return is_meta() ? std::size_t(m_message[2]) : 0 ;
-    }
-
-    /**
-     *  The size of the message, including the "FF xx len" values.
-     *
-     *  Compare to sysex_size().
-     */
-
-    std::size_t meta_msg_size () const
-    {
-        return is_meta() ? std::size_t(m_message.event_byte_count()) : 0 ;
     }
 
     /**
@@ -837,62 +912,7 @@ public:
         return m_selected;
     }
 
-    /**
-     *  Sets the event to a clock event.
-     */
-
-    void make_clock ()
-    {
-        m_message.clear();
-        m_message.push(midi::to_byte(status::clk_clock));
-    }
-
-    /**
-     *  Hmmmmm, I can't remember the semantics of this one!
-     */
-
-    midi::byte data (int index) const    /* index not checked, for speed */
-    {
-        return m_message[index + 1];
-    }
-
-    /**
-     *  Assuming m_message[] holds a note, get the note number, which is in the
-     *  first data byte, m_message[1].
-     */
-
-    midi::byte get_note () const
-    {
-        return m_message[1];
-    }
-
-    /**
-     *  Sets the note number, clearing off the most-significant-bit and
-     *  assigning it to the first data byte, m_message[0].
-     *
-     * \param note
-     *      Provides the note value to set.
-     */
-
-    void set_note (midi::byte note)
-    {
-        m_message[1] = mask_data(note);
-    }
-
     void transpose_note (int tn);
-
-    /**
-     *  Sets the note velocity, which is held in the second data byte, and
-     *  clearing off the most-significant-bit, storing it in m_message[1].
-     *
-     * \param vel
-     *      Provides the velocity value to set.
-     */
-
-    void note_velocity (int vel)
-    {
-        m_message[2] = mask_data(midi::byte(vel));
-    }
 
     midi::byte note_velocity () const
     {

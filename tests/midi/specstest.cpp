@@ -25,7 +25,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-10-22
- * \updates       2026-11-16
+ * \updates       2026-11-19
  * \license       See above.
  *
  *  It assumes it is run from the top-level directory of the midi66 project.
@@ -778,6 +778,14 @@ meta_tests ()
     if (s_test_counter == 31)
         printf("Break\n");                              /* debug breakpoint */
 #endif
+
+    /*
+     *  Turn this off until we can make "fancy" versions of the
+     *  test meta data.
+     */
+
+    midi::set_spec_fancy(false);
+
     for (const auto & met : s_meta_values)
     {
         midi::event ev = midi::string_to_midi_event(met.inputline);

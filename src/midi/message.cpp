@@ -24,7 +24,7 @@
  * \library       midi66
  * \author        Gary P. Scavone; refactoring by Chris Ahlstrom
  * \date          2016-12-01
- * \updates       2026-10-31
+ * \updates       2026-11-19
  * \license       See above.
  *
  *  Provides a basic type for the (heavily-factored) midi66 library, very
@@ -128,6 +128,7 @@
 #include <iostream>                     /* std::cerr                        */
 #include <iomanip>                      /* std::hex, setw()  manipulators   */
 
+#include "midi/calculations.hpp"        /* midi::extract_varinum()          */
 #include "midi/message.hpp"             /* midi::message class              */
 
 namespace midi
@@ -341,6 +342,39 @@ message::to_string () const
 
     result += " buss/index ";
     result += std::to_string(midi_buss());
+    return result;
+}
+
+/**
+ *  If the first byte of the message indicates a meta event, this function
+ *  starts at the given index, and extracts a VLV (i.e. VLQ) value from
+ *  the message.
+ *
+ * \param [in/out] index
+ *      Provides the starting index. If 0, it is set to 2 (the third byte.
+ *      At the end of the function, it will point just past the varinum.
+ *
+ * \return
+ *      Returns the 4-byte unsigned length value, ranging from 0 to
+ *      0x0FFFFFFF (268435455). If not a meta message, or if the index
+ *      input is impossible, UINT32_MAX is returned.
+ */
+
+midi::ulong
+message::meta_length (int & index) const
+{
+    midi::ulong  result { UINT32_MAX };
+    if (is_meta(m_bytes[0]))
+    {
+        if (index == 0)
+            index = 2;                          /* start of len             */
+
+        if (index == 2)
+        {
+            midi::ulong len { midi::extract_varinum(m_bytes, index) };
+            result = long(len);
+        }
+    }
     return result;
 }
 

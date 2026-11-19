@@ -27,7 +27,7 @@
  * \library       midi66 library
  * \author        Chris Ahlstrom
  * \date          2026-10-21
- * \updates       2026-11-18
+ * \updates       2026-11-19
  * \license       GNU GPLv2 or above
  *
  */
@@ -128,10 +128,24 @@ extern std::string meta_to_string (const midi::event & ev);
  * Could be considered private, but no need for that.
  */
 
+extern void set_spec_fancy (bool fancy);
+extern bool spec_fancy ();
+
+extern int meta_type (const std::string & metaname);
 extern std::string meta_format_ex (int metatype);
 extern std::string meta_name (int metatype);
-extern int meta_type (const std::string & metaname);
-extern midi::pulse extract_seq_number
+extern std::string meta_seq_number_to_string (const midi::event & ev);
+extern std::string meta_text_to_string (const midi::event & ev);
+extern std::string meta_obsolete_to_string (const midi::event & ev);
+extern std::string meta_end_of_track_to_string (const midi::event & ev);
+extern std::string meta_set_tempo_to_string (const midi::event & ev);
+extern std::string meta_smpte_offset_to_string (const midi::event & ev);
+extern std::string meta_time_signature_to_string (const midi::event & ev);
+extern std::string meta_key_signature_to_string (const midi::event & ev);
+extern std::string meta_seq_spec_to_string (const midi::event & ev);
+extern std::string meta_to_string_ex (const midi::event & ev);
+
+extern midi::pulse extract_meta_seq_number
 (
     int mtype,
     const std::string & line,

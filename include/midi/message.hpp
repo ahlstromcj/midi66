@@ -27,7 +27,7 @@
  * \library       midi66 application
  * \author        Gary P. Scavone; refactoring by Chris Ahlstrom
  * \date          2016-11-20
- * \updates       2026-10-26
+ * \updates       2026-11-19
  * \license       See above.
  *
  *  Should we add operator [] for setting as well?
@@ -95,6 +95,9 @@ private:
     /**
      *  Holds the event status, length (for events supporting that)
      *  and data bytes.
+     *
+     *  For meta events, holds "0xFF 0xmm len data". That is, all of
+     *  the bytes needed to store or send the message.
      */
 
     container m_bytes { };
@@ -238,6 +241,8 @@ public:
     {
         return m_bytes.size();
     }
+
+    midi::ulong meta_length (int & index) const;
 
     int count () const
     {

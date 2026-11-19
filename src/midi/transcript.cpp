@@ -24,7 +24,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-07
- * \updates       2026-11-14
+ * \updates       2026-11-19
  * \license       GNU GPLv2 or above
  *
  *  The format of text-based MIDI transcript file is as follows, and the
@@ -102,11 +102,24 @@ transcript::parse (const std::string & tag)
     bool result { util::file_read_lines(file_spec(), lines(), true) };
     if (result)
     {
+        int base { 0 };
         result = lines().size() >= 4;
         if (result)
         {
             result = lines()[0] == magic_string();
-            if (! result)
+            if (result)
+            {
+                lib66::tokenization tokens { lines()[1] };
+                if (tokens[0] == "%Style")
+                {
+                    bool isplain { tokens[1] == "plain" };
+                    set_spec_fancy(! isplain);
+                    ++base;
+                }
+                else
+                    set_spec_fancy(false);
+            }
+            else
             {
                 std::string msg { "Unmatched magic string '" };
                 msg += magic_string();
@@ -116,7 +129,7 @@ transcript::parse (const std::string & tag)
         }
         if (result)
         {
-            result = util::starts_with(lines()[1], tune().MThdString());
+            result = util::starts_with(lines()[base + 1], tune().MThdString());
             if (! result)
             {
                 std::string msg { tune().MThdString() + "not present!" };
@@ -126,29 +139,34 @@ transcript::parse (const std::string & tag)
         if (result)
         {
             int smffmt, trackct, ppq;
-            string_to_midi_header(lines()[1], smffmt, trackct, ppq);
+            string_to_midi_header(lines()[base + 1], smffmt, trackct, ppq);
             tune().set_song_header(smffmt, trackct, ppq);
 
             midi::track * trk { nullptr };              /* a raw pointer    */
             int trkcounter { 0 };                       /* 1st trk pending  */
-            int linecounter { 0 };                      /* to skip lines    */
+//          int linecounter { 0 };                      /* to skip lines    */
+            bool got_track { false };
             for (const auto & eventline : lines())
             {
-                if (linecounter < 2)                  /* skip 1st, 2nd    */
-                {
-                    ++linecounter;
-                    continue;
-                }
+//              if ((linecounter - base) < 2)           /* skip 1st, 2nd    */
+//              {
+//                  ++linecounter;
+//                  continue;
+//              }
                 if (util::starts_with(eventline, "MTrk"))
                 {
                     /*
                      * INVESTIGATE using song::new_track() instead.
                      */
 
+                    got_track = true;
                     trk = create_track();
                 }
                 else
                 {
+                    if (! got_track)
+                        continue;
+
                     midi::event ev = string_to_midi_event(eventline);
                     if (ev.is_valid())
                     {
@@ -202,7 +220,13 @@ transcript::write (bool eventsonly)
 
     lib66::tokenization all_lines;
     all_lines.push_back(magic_string());
+    if (spec_fancy())
+        all_lines.push_back(fancy_style());
+    else
+        all_lines.push_back(plain_style());
+
     all_lines.push_back("\n");
+
     int smffmt, trackct, ppq;
     tune().get_song_header(smffmt, trackct, ppq);
 
