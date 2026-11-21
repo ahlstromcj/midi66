@@ -1,16 +1,15 @@
 TO DO for Midi66 0.2
 Chris Ahlstrom
-2019-11-11 to 2026-11-17
+2019-11-11 to 2026-11-21
 
 For version 0.2:
 
-    -   For meta events, allow "KeySig" (for example), to be read/written
-        instead of 0xFF 0xMM. That is, increase human readability.
     -   Add more files to the mftranscript and spectest tests.
+    -   Allow continuation characters in SysEx and long meta messages
 
 Fixes:
 
-    -   To do.
+    -   Fix mftranscript tests/data/midi/1Bar-export.mid
 
 Cannot duplicate:
 

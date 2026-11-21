@@ -16,7 +16,8 @@ This revision now works for ALSA and JACK MIDI and MIDI Clock I/O.
 
 ### Added
 
-- None.
+- For meta events, we allow "KeySig" (for example), to be read/written
+  instead of 0xFF 0xmm. That is, human readability is increased.
 
 ### Fixed
 

@@ -25,7 +25,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-10-22
- * \updates       2026-11-19
+ * \updates       2026-11-21
  * \license       See above.
  *
  *  It assumes it is run from the top-level directory of the midi66 project.
@@ -756,6 +756,10 @@ std::vector<meta_test_values> s_meta_values
 
     /*
      * Sequencer-specific: "FF 7F len SeqSpec data bytes"
+     *
+     * We will handle large len values.
+     *
+     * 0x7F, "%ld Meta SeqSpec len=%d %s"
      */
 
     {
@@ -784,7 +788,7 @@ meta_tests ()
      *  test meta data.
      */
 
-    midi::set_spec_fancy(false);
+    midi::set_spec_fancy(false);                        /* see eventspecs   */
 
     for (const auto & met : s_meta_values)
     {
@@ -830,6 +834,204 @@ meta_tests ()
 
     return result;
 }
+
+//--------------------------------------------------------------------------
+
+/**
+ *  "Fancy" meta samples.
+ */
+
+std::vector<meta_test_values> s_fancy_meta_values
+{
+    {
+        0,
+        "0 Meta SeqNumber 0",
+        "0 Meta SeqNumber 0"
+    },
+
+    {
+        192,
+        "192 Meta SeqNumber 256",        /* track 256 */
+        "192 Meta SeqNumber 256"
+    },
+    {
+        0,
+        "0 Meta TextEvent 'ABC.'",
+        "0 Meta TextEvent 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta Copyright 'ABC.'",
+        "0 Meta Copyright 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta TrackName 'ABC.'",
+        "0 Meta TrackName 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta Instrument 'ABC.'",
+        "0 Meta Instrument 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta Lyric 'ABC.'",
+        "0 Meta Lyric 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta Marker 'ABC.'",
+        "0 Meta Marker 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta CuePoint 'ABC.'",
+        "0 Meta CuePoint 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta ProgramName 'ABC.'",
+        "0 Meta ProgramName 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta PortName 'ABC.'",
+        "0 Meta PortName 'ABC.'"
+    },
+    {
+        0,
+        "0 Meta MidiChannel 0",
+        "0 Meta MidiChannel 0",
+    },
+    {
+        0,
+        "0 Meta MidiPort 0",
+        "0 Meta MidiPort 0",
+    },
+    {
+        0,
+        "0 Meta EndOfTrack",
+        "0 Meta EndOfTrack"
+    },
+    {
+        0,
+        "0 Meta SetTempo bpm=120.05",                       /* 120.05 BPM   */
+        "0 Meta SetTempo bpm=120.05"
+    },
+
+    /*
+     * SMPTE offset: "FF 54 05 hr mn se fr ff"
+     */
+
+    {
+        0,
+        "0 Meta SmpteOffset hour=22 min=15 sec=10 frame=0 frac=0",
+        "0 Meta SmpteOffset hour=22 min=15 sec=10 frame=0 frac=0"
+    },
+
+    /*
+     * Time signature: "FF 58 04 nn dd cc bb"
+     */
+
+    {
+        0,
+        "0 Meta TimeSig 8/32 cc=24 bb=8",            /* 8/32     */
+        "0 Meta TimeSig 8/32 cc=24 bb=8"
+    },
+
+    /*
+     * Key signature: "FF 59 02 ss kk"
+     */
+
+    {
+        0,
+        "0 Meta KeySig key=0 mode=major",                       /* C major  */
+        "0 Meta KeySig key=0 mode=major"
+    },
+    {
+        0,
+        "0 Meta KeySig key=-7 mode=minor",                       /* C major  */
+        "0 Meta KeySig key=-7 mode=minor"
+    },
+
+    /*
+     * Sequencer-specific: "FF 7F len SeqSpec-data-bytes"
+     */
+
+    {
+        0,
+        "0 Meta SeqSpec len=8 0x24 0x24 0x00 0x10 0x00 0x00 0x00 0x00",
+        "0 Meta SeqSpec len=8 0x24 0x24 0x00 0x10 0x00 0x00 0x00 0x00"
+    }
+};
+
+/*
+ * 0xFF. Meta events in the more readable fancy format.
+ */
+
+bool
+fancy_meta_tests ()
+{
+    bool result { false };
+
+    /*
+     *  Turn this on for the "fancy" versions of the
+     *  test meta data.
+     */
+
+    midi::set_spec_fancy(true);                     /* see eventspecs   */
+
+    for (const auto & met : s_fancy_meta_values)
+    {
+        midi::event ev = midi::string_to_midi_event(met.inputline);
+        long delta { long(ev.timestamp()) };
+        if (delta >= 0)
+        {
+            if (delta != met.delta)
+            {
+                result = false;
+                break;
+            }
+            else
+            {
+                std::string evstr { midi_event_to_string(ev) };
+                if (s_verbose)
+                {
+                    ++s_test_counter;
+                    std::cout
+                        << "Test #" << s_test_counter << std::endl
+                        << "Input line:   '"
+                        << met.inputline << "'" << std::endl
+                        << "Actual out:   '" << evstr << "'" << std::endl
+                        ;
+                }
+                if (evstr == met.outputline)
+                    result = true;
+                else
+                {
+                    result = false;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            result = false;
+            break;
+        }
+    }
+    if (! result)
+    {
+        std::cerr
+            << "'Meta' fancy (more human-readable test failed."
+            << std::endl
+            ;
+    }
+    return result;
+}
+
+//--------------------------------------------------------------------------
 
 #if defined MIDI66_SUPPORT_NOTE_SPECIFIC_EVENTSPECS
 
@@ -1163,6 +1365,9 @@ main (int argc, char * argv [])
 
         if (success)
             success = meta_tests();
+
+        if (success)
+            success = fancy_meta_tests();
 
         if (success)
             success = to_text_test();

@@ -26,7 +26,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2026-10-20
- * \updates       2026-11-19
+ * \updates       2026-11-21
  * \license       GNU GPLv2 or above
  *
  * std::string status_abbreviations (int m) uses these abbreviations:
@@ -952,7 +952,7 @@ midi_track_to_lines (const midi::track & trk)
  *              where cc determines what data follows
  */
 
-static const midi_format_map s_alt_meta_formats
+static const midi_format_map s_fancy_meta_formats
 {
     /* No. Delta 0xFF  No.     Data */
 
@@ -969,10 +969,10 @@ static const midi_format_map s_alt_meta_formats
     { 0x20, "%ld Meta MidiChannel %d"   },  /* cc obsolete              */
     { 0x21, "%ld Meta MidiPort %d"      },  /* pp obsolete,             */
     { 0x2F, "%ld Meta EndOfTrack"       },  /* len = 0                  */
-    { 0x51, "%ld Meta SetTempo usec=%g" },  /* tt tt tt (len = 3)       */
+    { 0x51, "%ld Meta SetTempo bpm=%g"  },  /* tt tt tt (len = 3)       */
     {
-        0x54,
-        "%ld Meta SmpteOffset hr=%d mn=%d se=%d fr=%d ff=%d"    /* len = 5  */
+        0x54,                               /* len = 5                  */
+        "%ld Meta SmpteOffset hour=%d min=%d sec=%d frame=%d frac=%d"
     },
     {
         /*
@@ -987,7 +987,7 @@ static const midi_format_map s_alt_meta_formats
          */
 
         0x58,
-        "%d Meta TimeSig nn=%d/dd=%d cc=%d bb=%d"               /* len = 4  */
+        "%ld Meta TimeSig %d/%d cc=%d bb=%d"                    /* len = 4  */
     },
     {
         /*
@@ -995,17 +995,17 @@ static const midi_format_map s_alt_meta_formats
          */
 
         0x59,                                   /* -7-to-7 maj/min len == 2 */
-        "%d Meta KeySig key=%d mode=%s"         /* mode is "major" "minor"  */
+        "%ld Meta KeySig key=%d mode=%s"        /* mode is "major" "minor"  */
     },
-    { 0x7F, "%d Meta SeqSpec %s"            }   /* data (len is variable)   */
+    { 0x7F, "%ld Meta SeqSpec len=%d %s"    }   /* data (len is variable)   */
 };
 
 std::string
 meta_format_ex (int metatype)
 {
     std::string result;
-    const auto iter { s_alt_meta_formats.find(metatype) };
-    if (iter != s_alt_meta_formats.end())
+    const auto iter { s_fancy_meta_formats.find(metatype) };
+    if (iter != s_fancy_meta_formats.end())
         result = iter->second;
 
     return result;
@@ -1028,7 +1028,7 @@ int
 meta_type (const std::string & metaname)
 {
     int result { -1 };
-    for (const auto & mf : s_alt_meta_formats)
+    for (const auto & mf : s_fancy_meta_formats)
     {
         lib66::tokenization fmttokens { util::tokenize(mf.second) };
         const std::string & third { fmttokens[2] };
@@ -1156,16 +1156,16 @@ extract_meta_text
             if (lastqpos > (qpos + 1))                      /* 1 or more    */
             {
                 std::string::size_type sz { lastqpos - qpos - 1 };
-                std::string text { line.substr(qpos, sz) };
+                std::string text { line.substr(qpos + 1, sz) };
                 midi::byte mb { midi::byte(mtype) };
                 midi::bytes lenbytes = long_to_vlv(midi::ulong(sz));
                 bytedest.push_back(0xFF);
                 bytedest.push_back(mb);
-                for (auto byt : lenbytes)
-                    bytedest.push_back(byt);                /* len          */
+                for (auto b : lenbytes)
+                    bytedest.push_back(b);                  /* len          */
 
-                for (auto byt : text)
-                    bytedest.push_back(byt);                /* text         */
+                for (auto b : text)
+                    bytedest.push_back(b);                  /* text         */
 
                 result = midi::pulse(delta);
             }
@@ -1187,21 +1187,38 @@ meta_text_to_string (const midi::event & ev)
     {
         int mtype { int(ev.meta_byte()) };
         std::string fmt { meta_format_ex(mtype) };  /* copying short string */
+
+        /*
+         * We need to append the delta time, ' ', 'Meta ',
+         * the name of the text-event, the single quote,
+         * the text as a string, then the double quote. The easiest
+         * way is to use the format statement then tweak the string.
+         * The last character will be the second "'".
+         */
+
         if (! fmt.empty())
         {
             const midi::bytes & evbytes { ev.event_bytes() };
             int index { 0 };                        /* start of len         */
             midi::ulong len { ev.meta_length(index) };
             int counter { 0 };
-            (void) len;
+            char tmp [32];
+            long delta { long(ev.timestamp()) };
+            (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, "");
+            result = tmp;
+            (void) len;                             /* got index, unneeded  */
+
+            std::string bytestr;
             for (auto b : evbytes)
             {
                 if (counter >= index)
-                {
-                    result += char(b);
-                }
+                    bytestr += char(b);
+
                 ++counter;
             }
+
+            std::string::size_type endpos { result.find_last_of("'") };
+            result.insert(endpos, bytestr);
         }
     }
     return result;
@@ -1260,10 +1277,10 @@ meta_obsolete_to_string (const midi::event & ev)
         if (! fmt.empty())
         {
             const midi::bytes & evbytes { ev.event_bytes() };
-            if (evbytes.size() == 3)                /* FF 00 02 ss ss       */
+            if (evbytes.size() == 4)                /* FF 20,1 01 cc,pp     */
             {
                 long delta { long(ev.timestamp()) };
-                int cpno { int(evbytes[2]) };
+                int cpno { int(evbytes[3]) };       /* channel or port no,  */
 
                 char tmp [32];
                 (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, cpno);
@@ -1345,7 +1362,7 @@ extract_meta_set_tempo
     if (! fmt.empty())
     {
         long delta;
-        double bpminute;
+        float bpminute;
         int rc { sscanf(CSTR(line), CSTR(fmt), &delta, &bpminute) };
         if (rc == 2 && bpminute >= 1.0)                         /* sanity   */
         {
@@ -1383,7 +1400,7 @@ meta_set_tempo_to_string (const midi::event & ev)
         if (! fmt.empty())
         {
             long delta { long(ev.timestamp()) };
-            double bpminute { double(ev.tempo()) };
+            float bpminute { float(ev.tempo()) };
             char tmp [32];
             (void) snprintf(tmp, sizeof tmp, CSTR(fmt), delta, bpminute);
             result = std::string(tmp);
@@ -1444,11 +1461,11 @@ meta_smpte_offset_to_string (const midi::event & ev)
         {
             long delta { long(ev.timestamp()) };
             const midi::bytes & evbytes { ev.event_bytes() };
-            int hr { int(evbytes[2]) };
-            int mn { int(evbytes[3]) };
-            int se { int(evbytes[4]) };
-            int fr { int(evbytes[5]) };
-            int ff { int(evbytes[6]) };
+            int hr { int(evbytes[3]) };
+            int mn { int(evbytes[4]) };
+            int se { int(evbytes[5]) };
+            int fr { int(evbytes[6]) };
+            int ff { int(evbytes[7]) };
             char tmp [80];
             (void) snprintf
             (
@@ -1484,7 +1501,7 @@ extract_meta_time_signature
         {
             sscanf(CSTR(line), CSTR(fmt), &delta, &nn, &dd, &cc, &bb)
         };
-        if (rc == 6 && midi::is_power_of_2(dd))
+        if (rc == 5 && midi::is_power_of_2(dd))
         {
             midi::byte mb { midi::byte(mtype) };
             midi::byte dd2 { midi::byte(midi::log2_of_power_of_2(dd)) };
@@ -1501,6 +1518,10 @@ extract_meta_time_signature
     return result;
 }
 
+/*
+ * 0xFF 0x58 04 nn dd cc bb
+ */
+
 std::string
 meta_time_signature_to_string (const midi::event & ev)
 {
@@ -1514,10 +1535,11 @@ meta_time_signature_to_string (const midi::event & ev)
         {
             long delta { long(ev.timestamp()) };
             const midi::bytes & evbytes { ev.event_bytes() };
-            int nn { int(evbytes[2]) };
-            int dd { int(evbytes[3]) };
-            int cc { int(evbytes[4]) };
-            int bb { int(evbytes[5]) };
+            int nn { int(evbytes[3]) };
+            int dd2 { int(evbytes[4]) };
+            int cc { int(evbytes[5]) };
+            int bb { int(evbytes[6]) };
+            int dd { midi::beat_power_of_2(dd2) };
             char tmp [80];
             (void) snprintf
             (
@@ -1623,8 +1645,8 @@ meta_key_signature_to_string (const midi::event & ev)
         {
             long delta { long(ev.timestamp()) };
             const midi::bytes & evbytes { ev.event_bytes() };
-            int keyno { int(char(evbytes[2])) };
-            int modeno { int(char(evbytes[3])) };
+            int keyno { int(char(evbytes[3])) };
+            int modeno { int(char(evbytes[4])) };
             std::string mode { modeno == 0 ? "major" : "minor" };
             char tmp [80];
             (void) snprintf
@@ -1640,7 +1662,9 @@ meta_key_signature_to_string (const midi::event & ev)
 /**
  *  Extracts data from lines of the form:
  *
- *      "0 Meta SeqSpec 0xFF ... # comments".
+ *      "0 Meta SeqSpec len=10 ... databytes".
+ *
+ *  However, that format line is not directly used here.
  */
 
 midi::pulse
@@ -1651,21 +1675,25 @@ extract_meta_seq_spec
 )
 {
     midi::pulse result { -1 };
+    midi::bytes data;
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
     bytedest.clear();
     if (tokens.size() < 3)
         return result;
 
+    long speclen { 0 };
     for (const auto & t : tokens)
     {
         /*
          * Avoid handling non-numbers after the first three tokens.
          */
 
-        if (counter > 2 && ! std::isxdigit(t[0]))
-            break;
-
+        if (! spec_fancy())
+        {
+            if (counter > 2 && ! std::isxdigit(t[0]))
+                break;
+        }
         if (counter == 0)
         {
             long ts { util::string_to_long(t) };
@@ -1687,14 +1715,42 @@ extract_meta_seq_spec
                 break;
             }
         }
+        else if (counter == 3)
+        {
+            lib66::tokenization tokens { util::tokenize(t, "=") };
+            if (tokens.size() == 2 && tokens[0] == "len")
+            {
+                speclen = util::string_to_long(tokens[1]);
+                if (speclen <= 0)
+                {
+                    result = (-1);
+                    break;
+                }
+            }
+        }
         else
         {
             unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
             midi::byte b { midi::byte(ubyte) };
-            bytedest.push_back(b);
+            data.push_back(b);
         }
         ++counter;
     }
+    if ((result >= 0) && (data.size() == std::size_t(speclen)))
+    {
+        midi::bytes lenbytes = long_to_vlv(midi::ulong(speclen));
+        midi::byte mb { midi::to_byte(midi::meta::seq_spec) };
+        bytedest.push_back(0xFF);
+        bytedest.push_back(mb);
+        for (auto b : lenbytes)
+            bytedest.push_back(b);
+
+        for (auto b : data)
+            bytedest.push_back(b);
+    }
+    else
+        result = (-1);
+
     return result;
 }
 
@@ -1725,7 +1781,7 @@ expand_bytes
 }
 
 /**
- * 0x7F, "%d Meta SeqSpec %s"
+ * 0x7F, "%d Meta SeqSpec len=%d %s"
  */
 
 std::string
@@ -1741,9 +1797,13 @@ meta_seq_spec_to_string (const midi::event & ev)
         {
             long delta { long(ev.timestamp()) };
             const midi::bytes & evbytes { ev.event_bytes() };
-            std::string data { expand_bytes(evbytes, 2) };
-            result += std::to_string(delta);
-            result += " Meta SeqSpec ";
+            int index { 2 };                        /* start of len's bytes */
+            long len { long(extract_varinum(evbytes, index)) };
+            std::string data { expand_bytes(evbytes, index) };
+            result = std::to_string(delta);
+            result += " Meta SeqSpec len=";
+            result += std::to_string(len);
+            result += " ";
             result += data;
         }
     }
@@ -1759,6 +1819,7 @@ midi::pulse
 extract_meta_ex (const std::string & line, midi::bytes & bytedest)
 {
     midi::pulse result { -1 };
+    midi::pulse resultcheck { -1 };
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
     bytedest.clear();
@@ -1770,7 +1831,8 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
         if (counter == 0)
         {
             long ts { util::string_to_long(t) };
-            result = midi::pulse(ts);
+            resultcheck = midi::pulse(ts);
+            ++counter;
         }
         else if (counter == 1)
         {
@@ -1779,6 +1841,7 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
                 result = (-1);
                 break;
             }
+            ++counter;
         }
         else if (counter == 2)
         {
@@ -1852,18 +1915,9 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
 
                     break;
                 }
+                return result;
             }
         }
-        else
-        {
-#if 0
-            unsigned ubyte { util::string_to_unsigned(t, 0, 16) };
-            midi::byte b { midi::byte(ubyte) };
-            bytedest.push_back(b);
-#else
-#endif
-        }
-        ++counter;
     }
     return result;
 }
