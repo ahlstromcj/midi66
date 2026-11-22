@@ -6,7 +6,7 @@
 # \library     midi66
 # \author      Chris Ahlstrom
 # \date        2026-11-10
-# \updates     2026-11-13
+# \updates     2026-11-22
 # \license     $XPC_SUITE_GPL_LICENSE$
 #
 #  This file is part of the "midi66" project. See the top-level meson.build
@@ -24,10 +24,11 @@
 mftranscript_exe = executable(
    'mftranscript',
    sources : ['src/mftranscript.cpp'],
+   include_directories : [ 'include' ],
    dependencies : [
       libmidi66_dep, liblib66_library_dep, libcfg66_library_dep
       ],
-   include_directories : [ 'include' ]
+   install : true
    )
 
 

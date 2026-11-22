@@ -24,7 +24,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-07
- * \updates       2026-11-19
+ * \updates       2026-11-22
  * \license       GNU GPLv2 or above
  *
  *  The format of text-based MIDI transcript file is as follows, and the
@@ -144,15 +144,9 @@ transcript::parse (const std::string & tag)
 
             midi::track * trk { nullptr };              /* a raw pointer    */
             int trkcounter { 0 };                       /* 1st trk pending  */
-//          int linecounter { 0 };                      /* to skip lines    */
             bool got_track { false };
             for (const auto & eventline : lines())
             {
-//              if ((linecounter - base) < 2)           /* skip 1st, 2nd    */
-//              {
-//                  ++linecounter;
-//                  continue;
-//              }
                 if (util::starts_with(eventline, "MTrk"))
                 {
                     /*

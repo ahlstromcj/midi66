@@ -26,7 +26,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2026-10-20
- * \updates       2026-11-21
+ * \updates       2026-11-22
  * \license       GNU GPLv2 or above
  *
  * std::string status_abbreviations (int m) uses these abbreviations:
@@ -1819,7 +1819,7 @@ midi::pulse
 extract_meta_ex (const std::string & line, midi::bytes & bytedest)
 {
     midi::pulse result { -1 };
-    midi::pulse resultcheck { -1 };
+    // midi::pulse resultcheck { -1 };
     lib66::tokenization tokens { util::tokenize(line) };
     std::size_t counter { 0 };
     bytedest.clear();
@@ -1831,7 +1831,7 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
         if (counter == 0)
         {
             long ts { util::string_to_long(t) };
-            resultcheck = midi::pulse(ts);
+            // resultcheck = midi::pulse(ts);
             ++counter;
         }
         else if (counter == 1)

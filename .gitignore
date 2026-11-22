@@ -1,12 +1,14 @@
 # .gitignore for Seq66
 #
 # Chris Ahlstrom
-# 2026-02-24 to 2026-06-26
+# 2026-02-24 to 2026-11-22
 #
 # Ignore build products and subproject files, but do not ignore the wrap files.
 
 build/
 .cache
+!.gitignore
+!.gitattributes
 /subprojects/*
 !/subprojects/*.wrap
 .qtcreator/

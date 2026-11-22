@@ -26,7 +26,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-11
- * \updates       2026-11-12
+ * \updates       2026-11-21
  * \license       See above.
  */
 
@@ -144,11 +144,13 @@ process_input_file
     if (ext == "transcript")
     {
         outputfile = util::file_extension_set(outputfile, ".midi");
+        result = true;
     }
     else if (ext == "midi" || ext == "mid" || ext == "smf")
     {
         input_is_transcript = false;
         outputfile = util::file_extension_set(outputfile, ".transcript");
+        result = true;
     }
     else
         util::error_message("Invalid file extension", infile);

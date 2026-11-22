@@ -6,7 +6,7 @@
 # \library     midi66
 # \author      Chris Ahlstrom
 # \date        2022-06-07
-# \updates     2026-11-17
+# \updates     2026-11-22
 # \license     $XPC_SUITE_GPL_LICENSE$
 #
 #  This file is part of the midi66 library.
@@ -107,7 +107,7 @@
 
 project('midi66',
    [ 'c', 'cpp' ],
-   version : '0.1',
+   version : '0.2',
    license : 'GPLv3',
    meson_version : '>=1.4.0',
    default_options : [
@@ -137,7 +137,7 @@ endif
 #
 #-----------------------------------------------------------------------------
 
-midi66_pkg_description = 'Refactoring/extension of the RtMidi library for Seq66v2.'
+midi66_pkg_description = 'Refactoring/extension of the Seq66 MIDI file library.'
 midi66_pkg_version = meson.project_version()
 midi66_api_version = '0.2'
 midi66_info_date = '2026-11-17'

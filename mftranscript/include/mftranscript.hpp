@@ -26,7 +26,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-11
- * \updates       2026-11-12
+ * \updates       2026-11-21
  * \license       See above.
  *
  */
@@ -99,7 +99,7 @@ cfg::options::container s_app_options   /* std::map<string, spec>           */
         "output-file",
         {
             'o', cfg::options::kind::string, cfg::options::enabled,
-            "none", "", false, false,
+            "", "", false, false,
             "Specifies the file name for output. If desired, the path "
             "should be included.",
             false
