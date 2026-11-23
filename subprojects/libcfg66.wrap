@@ -20,6 +20,6 @@ depth = 1
 # These dependencies are declared in cfg66/meson.build.
 #----------------------------------------------------------------------------
 
-libcfg66_library = libcfg66_dep
+libcfg66_library_dep = libcfg66_dep
 
 # vim: ft=dosini

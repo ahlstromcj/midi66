@@ -24,7 +24,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-07
- * \updates       2026-11-22
+ * \updates       2026-11-23
  * \license       GNU GPLv2 or above
  *
  *  The format of text-based MIDI transcript file is as follows, and the
@@ -106,10 +106,12 @@ transcript::parse (const std::string & tag)
         result = lines().size() >= 4;
         if (result)
         {
-            result = lines()[0] == magic_string();
+            std::string line0 { lines()[0] };
+            std::string magicstr { magic_string() };
+            result = line0 == magicstr;
             if (result)
             {
-                lib66::tokenization tokens { lines()[1] };
+                lib66::tokenization tokens { util::tokenize(lines()[1]) };
                 if (tokens[0] == "%Style")
                 {
                     bool isplain { tokens[1] == "plain" };
@@ -122,7 +124,7 @@ transcript::parse (const std::string & tag)
             else
             {
                 std::string msg { "Unmatched magic string '" };
-                msg += magic_string();
+                msg += magicstr;
                 msg += "'!";
                 (void) set_error(msg);
             }
@@ -132,7 +134,7 @@ transcript::parse (const std::string & tag)
             result = util::starts_with(lines()[base + 1], tune().MThdString());
             if (! result)
             {
-                std::string msg { tune().MThdString() + "not present!" };
+                std::string msg { tune().MThdString() + " not present!" };
                 (void) set_error(msg);
             }
         }

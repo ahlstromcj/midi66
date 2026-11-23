@@ -269,6 +269,8 @@ libcfg66_library_dep = dependency(
    'libcfg66', fallback : [ 'libcfg66', 'libcfg66_dep' ]
    )
 
+#  default_options : [ 'default_library=static' ]
+
 libxpc66_dep = subproject('libxpc66').get_variable('libxpc66_dep')
 libxpc66_library_dep = dependency(
    'libxpc66', fallback : [ 'libxpc66', 'libxpc66_dep' ]

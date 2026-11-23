@@ -6,7 +6,7 @@
 # \library     midi66
 # \author      Chris Ahlstrom
 # \date        2026-11-10
-# \updates     2026-11-22
+# \updates     2026-11-23
 # \license     $XPC_SUITE_GPL_LICENSE$
 #
 #  This file is part of the "midi66" project. See the top-level meson.build
@@ -19,6 +19,9 @@
 #  all the "66" projects, including the midi66 library and mftranscript
 #  program.
 #
+#  We use get_static_lib() to avoid jacking around with the installed
+#  shared libraries.
+#
 #-----------------------------------------------------------------------------
 
 mftranscript_exe = executable(
@@ -28,6 +31,7 @@ mftranscript_exe = executable(
    dependencies : [
       libmidi66_dep, liblib66_library_dep, libcfg66_library_dep
       ],
+   link_with : [ midi66_library_build ],
    install : true
    )
 

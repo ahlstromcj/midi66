@@ -1,6 +1,6 @@
 TO DO for Midi66 0.2
 Chris Ahlstrom
-2019-11-11 to 2026-11-22
+2019-11-11 to 2026-11-23
 
 For version 0.2:
 
@@ -13,6 +13,7 @@ Fixes:
     -   Fix mftranscript tests/data/midi/1Bar-export.mid. The issue
         is that it has two tracks, but the SeqSpec track is not counted
         in the MIDI header, so it equals 1.
+    -   End of track not written to transcript.
 
 Cannot duplicate:
 

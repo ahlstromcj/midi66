@@ -26,7 +26,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-14
- * \updates       2026-11-16
+ * \updates       2026-11-23
  * \license       See above.
  */
 
@@ -106,6 +106,15 @@ const std::string s_test_input_midi         { "tests/data/midi" };
 const std::string s_test_input_transcripts  { "tests/data/mftranscript" };
 const std::string s_test_result_directory   { "build/results" };
 
+const lib66::tokenization s_test_midi_list
+{
+    "1Bar-export.mid",
+    "1Bar.midi",
+    "simpleblast-ch1-8th-notes-960.midi",
+    "simpleblast-ch1-8th-notes.midi",
+    "smoke.mid"
+};
+
 /**
  *  Runs the test on a file.
  *
@@ -140,7 +149,7 @@ const std::string s_test_result_directory   { "build/results" };
  */
 
 bool
-process_midi_file (const std::string & midifile)
+process_midi_file (const std::string & midifile, bool ignoregold = false)
 {
     std::string ext { util::file_extension(midifile) };
     bool result { ext == "midi" || ext == "mid" || ext == "smf" };
@@ -161,6 +170,9 @@ process_midi_file (const std::string & midifile)
         result = util::make_directory_path(s_test_result_directory);
         if (result)
             result = convert_midi_to_transcript(midiinput, transcriptoutput);
+
+        if (ignoregold)                 /* useful for creating golden files */
+            return result;
 
         if (result)
         {
@@ -269,11 +281,31 @@ main (int argc, char * argv [])
             rcode = EXIT_SUCCESS;
         }
         else
-            std::cout << "mftranscript test failed" << std::endl;
+            std::cerr << "mftranscript test failed" << std::endl;
     }
     else
     {
-        // TODO: use a list of files
+        for (const auto & midifile : s_test_midi_list)
+        {
+            bool result { process_midi_file(midifile) };
+            if (result)
+            {
+                std::cout
+                    << "mftranscript test of "
+                    << midifile << " succeeded"
+                    << std::endl
+                    ;
+            }
+            else
+            {
+                std::cerr
+                    << "mftranscript test of "
+                    << midifile << " failed"
+                    << std::endl
+                    ;
+                break;
+            }
+        }
     }
     return rcode;
 }
