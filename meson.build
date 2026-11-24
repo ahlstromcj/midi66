@@ -6,7 +6,7 @@
 # \library     midi66
 # \author      Chris Ahlstrom
 # \date        2022-06-07
-# \updates     2026-11-22
+# \updates     2026-11-23
 # \license     $XPC_SUITE_GPL_LICENSE$
 #
 #  This file is part of the midi66 library.
@@ -140,7 +140,7 @@ endif
 midi66_pkg_description = 'Refactoring/extension of the Seq66 MIDI file library.'
 midi66_pkg_version = meson.project_version()
 midi66_api_version = '0.2'
-midi66_info_date = '2026-11-17'
+midi66_info_date = '2026-11-23'
 midi66_info_build_type = get_option('buildtype')
 midi66_info_build_root = meson.project_build_root()
 midi66_info_lib_type = get_option('default_library')
@@ -164,7 +164,9 @@ endif
 midi66_dir = 'midi66-@0@'.format(midi66_api_version)
 midi66_prefix = get_option('prefix')
 midi66_bindir = join_paths(midi66_prefix, get_option('bindir'))
-midi66_includedir = join_paths(midi66_prefix, get_option('includedir'), midi66_dir)
+midi66_includedir = join_paths(
+   midi66_prefix, get_option('includedir'), midi66_dir
+   )
 midi66_libdir = join_paths(midi66_prefix, get_option('libdir'), midi66_dir)
 midi66_datadir = join_paths(midi66_prefix, get_option('datadir'), midi66_dir)
 midi66_docdir = join_paths(midi66_prefix, midi66_datadir, 'doc', midi66_dir)
@@ -254,26 +256,36 @@ if midi66_use_potext
 
    libpotext_dep = subproject('libpotext').get_variable('libpotext_dep')
    libpotext_library_dep = dependency(
-      'libpotext', fallback : [ 'libpotext', 'libpotext_dep' ]
+      'libpotext', fallback : [ 'libpotext', 'libpotext_dep' ],
+      default_options : [ 'default_library=static' ]
       )
 
 endif
 
-liblib66_dep = subproject('liblib66').get_variable('liblib66_dep')
+liblib66_subproj = subproject('liblib66')
+liblib66_dep = liblib66_subproj.get_variable('liblib66_dep')
 liblib66_library_dep = dependency(
-   'liblib66', fallback : [ 'liblib66', 'liblib66_dep' ]
+   'liblib66', fallback : [ 'liblib66', 'liblib66_dep' ],
+   default_options : [ 'default_library=static' ]
    )
 
-libcfg66_dep = subproject('libcfg66').get_variable('libcfg66_dep')
+lib66_library_build = liblib66_subproj.get_variable('lib66_library_build')
+
+libcfg66_subproj = subproject('libcfg66')
+libcfg66_dep = libcfg66_subproj.get_variable('libcfg66_dep')
 libcfg66_library_dep = dependency(
-   'libcfg66', fallback : [ 'libcfg66', 'libcfg66_dep' ]
+   'libcfg66', fallback : [ 'libcfg66', 'libcfg66_dep' ],
+   default_options : [ 'default_library=static' ]
    )
+
+cfg66_library_build = libcfg66_subproj.get_variable('cfg66_library_build')
 
 #  default_options : [ 'default_library=static' ]
 
 libxpc66_dep = subproject('libxpc66').get_variable('libxpc66_dep')
 libxpc66_library_dep = dependency(
-   'libxpc66', fallback : [ 'libxpc66', 'libxpc66_dep' ]
+   'libxpc66', fallback : [ 'libxpc66', 'libxpc66_dep' ],
+   default_options : [ 'default_library=static' ]
    )
 
 #-----------------------------------------------------------------------------
@@ -325,16 +337,21 @@ endif
 #
 #     gnu_symbol_visibility: 'hidden'
 #
+# Builds the library and wraps it in a dependency object for internal'
+# consumption. Use library() to respect the user's default_library option
+# (shared vs. static), or explicitly use static_library() / shared_library()
+# (or both_libraries() to build both simultaneously).
+#
 # Also see the https://gcc.gnu.org/wiki/Visibility site.
 #
 #-----------------------------------------------------------------------------
 
 if midi66_use_potext
 
-   midi66_library_build = library(
+   midi66_library_build = both_libraries(
       midi66_project_base,
       libmidi66_sources,
-      install : not midi66_subproj,
+      install : true,                     # not midi66_subproj,
       install_dir : midi66_libdir,
       c_args : build_args,
       cpp_args : build_args,
@@ -347,10 +364,10 @@ if midi66_use_potext
 
 else
 
-   midi66_library_build = library(
+   midi66_library_build = both_libraries(
       midi66_project_base,
       libmidi66_sources,
-      install : not midi66_subproj,
+      install : true,                     # not midi66_subproj,
       install_dir : midi66_libdir,
       c_args : build_args,
       cpp_args : build_args,
@@ -456,7 +473,7 @@ summary(
       'bindir' : midi66_bindir,
       'libdir' : midi66_libdir,
       'datadir' : midi66_datadir,
-      'appdatadir' : midi66_datadir
+      'appdatadir' : midi66_datadir,
    },
    section : 'Midi66 Install Directories'
    )

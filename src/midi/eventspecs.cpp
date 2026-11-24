@@ -1830,8 +1830,6 @@ extract_meta_ex (const std::string & line, midi::bytes & bytedest)
     {
         if (counter == 0)
         {
-            long ts { util::string_to_long(t) };
-            // resultcheck = midi::pulse(ts);
             ++counter;
         }
         else if (counter == 1)

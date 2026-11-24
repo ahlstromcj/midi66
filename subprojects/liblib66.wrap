@@ -2,7 +2,7 @@
 #
 # Lib66 Library Wrapper
 # Chris Ahlstrom
-# 2025-01-30 to 2025-03-02
+# 2025-01-30 to 2025-11-23
 #
 #   Lib66 wrapper for GitHub repository
 #
@@ -20,6 +20,6 @@ depth = 1
 # This dependency is declared in lib66/meson.build.
 #----------------------------------------------------------------------------
 
-liblib66_library = liblib66_dep
+liblib66_library_dep = liblib66_dep
 
 # vim: ft=dosini

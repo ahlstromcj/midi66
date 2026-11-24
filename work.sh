@@ -8,7 +8,7 @@
 # \library        midi66
 # \author         Chris Ahlstrom
 # \date           2024-02-06
-# \update         2026-11-16
+# \update         2026-11-24
 # \version        $Revision$
 # \license        $XPC_SUITE_GPL_LICENSE$
 #
@@ -34,8 +34,8 @@ LANG=C
 export LANG
 CYGWIN=binmode
 export CYGWIN
-export MIDI66_SCRIPT_EDIT_DATE="2026-11-16"
-export MIDI66_LIBRARY_API_VERSION="0.1"
+export MIDI66_SCRIPT_EDIT_DATE="2026-11-24"
+export MIDI66_LIBRARY_API_VERSION="0.2"
 export MIDI66_LIBRARY_VERSION="$MIDI66_LIBRARY_API_VERSION.0"
 export MIDI66="midi66"
 export MIDI66_LIBRARY="$MIDI66-$MIDI66_LIBRARY_API_VERSION"
@@ -54,7 +54,9 @@ MAKELOG="make.log"
 OFFLINEOPTS=""
 PLATFORM="UNIX"
 POTEXTDEF=""
+STATIC=""                           # --static
 TAGSTRING="pack"
+WSH="[work]"
 
 # Flags.
 
@@ -75,7 +77,6 @@ DOPOTEXT="no"        # --potext. Use translation [NOT YET SUPPORTED].
 DORELEASE="yes"      # --release. as opposed to debug; also PDF is made.
 DOREMAKE="no"        # currently UNUSED
 DOSETUP="no"         # --setup. Do the setup and then exit.
-DOSTATIC="yes"       # --static
 DOUNINSTALL="no"     # --uninstall. Like --install, requires sudo/root.
 DOUPDATE="no"        # --update. Force a subproject update.
 DOVERSION="no"       # --version. Duouble duh!
@@ -116,7 +117,7 @@ get_options () {
                MAKELOG="$BUILD_DIR/make.log"
                CROSSENVSET="PKG_CONFIG_PATH=$CROSS_PKG_PATH:$PKG_CONFIG_PATH"
                export $CROSSENVSET
-               echo "CROSSENVSET: PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+               echo "$WSH CROSSENVSET: PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
                ;;
 
             --clean)
@@ -133,7 +134,7 @@ get_options () {
 
             --clang)
                DOCLANG="yes"
-               echo "Using the Clang C/C++ compilers..."
+               echo "$WSH Using the Clang C/C++ compilers..."
                export CC=clang
                export CXX=clang++
                BUILD_DIR="$BASE_BUILD_DIR/clang"
@@ -142,7 +143,7 @@ get_options () {
 
             --gnu | gcc)
                DOGNU="yes"
-               echo "Using the GNU C/C++ compilers..."
+               echo "$WSH Using the GNU C/C++ compilers..."
                export CC=gcc
                export CXX=g++
                BUILD_DIR="$BASE_BUILD_DIR/gcc"
@@ -250,9 +251,8 @@ get_options () {
                ;;
 
             --static)
-               DORELEASE="yes"
-               DODEBUG="no"
-               DOSTATIC="yes"
+               DOMAKE="yes"
+               STATIC="--default-library=static"
                ;;
 
             --version)
@@ -262,7 +262,7 @@ get_options () {
 
             *)
                if test "$DOPACK" = "no" ; then
-                  echo "? Unsupported work option; --help for more information"
+                  echo "$WSH ? Unsupported work option; --help for more information"
                   exit 1
                else
                   TAGSTRING="$1"
@@ -280,7 +280,7 @@ get_options () {
 #------------------------------------------------------------------------------
 
 show_version () {
-   echo "Cfg66 version $MIDI66_LIBRARY_VERSION $MIDI66_SCRIPT_EDIT_DATE"
+   echo "$WSH Midi66 version $MIDI66_LIBRARY_VERSION $MIDI66_SCRIPT_EDIT_DATE"
 }
 
 #******************************************************************************
@@ -304,7 +304,13 @@ Many of these commands are best used when setting up the build
  --setup             Run 'meson setup', and that's all.
  --update            Force an update of the subprojects.
  --potext            Build with Potext (light gettext) library sypport.
- --release           Build release version (the default).
+ --release           Build release version (the default). Builds the
+                     mftranscript program and shared and static libraries
+                     (midi66, cfg66, lib66, and xpc66, the last three being
+                     subprojects.
+ --static            Build only static code. Currently needed with
+                     --release and --install to avoid not finding
+                     some shared libraries. Still working on the fix.
  --debug             Build debug version. Always builds in 'build/debug'.
  --install           Run 'meson install' to install Seq66 and the PDF manual.
  --uninstall         Run 'ninja uninstall' to uninstall the library.
@@ -356,18 +362,18 @@ make_pdf () {
 clean_build () {
 
    for DIR in $BASE_BUILD_DIR/*/ ; do
-      echo "Deleting $DIR"
+      echo "$WSH Deleting $DIR"
       rm -rf $DIR
    done
 
    rm -f doc/dox/*.log
    rm -f doc/latex/*.log
-   echo "Build products removed from the $MIDI66/build sub-directories."
+   echo "$WSH Build products removed from the $MIDI66/build sub-directories."
    rm -rf subprojects/libcfg66/
    rm -rf subprojects/liblib66/
    rm -rf subprojects/libxpc66/
    rm -rf subprojects/potext/          # available, but code not prep'ed
-   echo "Subproject downloaded libraries removed from 'subprojects'."
+   echo "$WSH Subproject downloaded libraries removed from 'subprojects'."
 }
 
 make_pack () {
@@ -385,15 +391,15 @@ make_pack () {
       GITBRANCH=""
    fi
 
-   echo "Working directory: $WORKINGDIR"
+   echo "$WSH Working directory: $WORKINGDIR"
    if test "$ISGITBRANCH" = "yes" ; then
          TARBALLNAME="$WORKINGDIR-$GITBRANCH-$CURRENTDATE-$TAGSTRING.tar.xz"
-         echo "Git branch detected."
+         echo "$WSH Git branch detected."
    else
          TARBALLNAME="$WORKINGDIR-$CURRENTDATE-$TAGSTRING.tar.xz"
    fi
 
-   echo "The tar-ball to be generated is '../$TARBALLNAME'"
+   echo "$WSH The tar-ball to be generated is '../$TARBALLNAME'"
 
    cd ..
    if test -d $WORKINGDIR ; then
@@ -411,35 +417,36 @@ make_pack () {
  --exclude="*.xz" \
  --exclude="*.zip" \
  $WORKINGDIR
-      echo "Packed!"
+      echo "$WSH Packed!"
    else
-      echo "? Working directory $WORKINGDIR does not exist."
-      echo "  Are you running pack from the proper directory?"
-      echo "  That is what you must do."
+      echo "$WSH ? Working directory $WORKINGDIR does not exist."
+      echo "$WSH   Are you running pack from the proper directory?"
+      echo "$WSH   That is what you must do."
    fi
    cd $MIDI66
 }
 
 make_projects () {
-   echo "Making the $MIDI66 library, tests and mftranscript..."
+   echo "$WSH Making the $MIDI66 library, tests and mftranscript..."
    NINJA_EXISTS="no"
    if test -f "$MAKEFILE" ; then
       NINJA_EXISTS="yes"
    fi
    if test "$DOREMAKE" = "yes" ; then
       if test "$NINJA_EXISTS" = "yes" ; then
-         echo "$MAKEFILE exists, reconfiguring..."
+         echo "$WSH $MAKEFILE exists, reconfiguring..."
+         echo "$WSH meson setup --reconfigure $OFFLINEOPTS $MOPTS"
          meson setup --reconfigure $OFFLINEOPTS $MOPTS
       fi
    fi
    if test "$NINJA_EXISTS" = "no" ; then
-      echo "New configuration, creating $MAKEFILE, etc...."
+      echo "$WSH New configuration, creating $MAKEFILE, etc...."
       if test "$DODEBUG" = "yes" ; then
+         echo "$WSH meson setup --default-library=static $OFFLINEOPTS $MOPTS for debugging"
          meson setup --default-library=static $OFFLINEOPTS $MOPTS
-         echo "... for debugging"
       else
-         meson setup $OFFLINEOPTS $MOPTS
-         echo "... for release"
+         echo "$WSH meson setup $STATIC $OFFLINEOPTS $MOPTS for $BUILD_TYPE"
+         meson setup $STATIC $OFFLINEOPTS $MOPTS
       fi
    fi
 
@@ -450,15 +457,15 @@ make_projects () {
    ninja -v > $MAKELOG
    if test $? = 0 ; then
       if test "$DODEBUG" = "yes" ; then
-         echo "Debug build in $BUILD_DIR succeeded."
+         echo "$WSH Debug build in $BUILD_DIR succeeded."
       else
-         echo "Release build in $BUILD_DIR succeeded."
+         echo "$WSH Release build in $BUILD_DIR succeeded."
       fi
    else
       if test "$DODEBUG" = "yes" ; then
-         echo "Debug build failed, check $BUILD_DIR/make.log for errors."
+         echo "$WSH Debug build failed, check $BUILD_DIR/make.log for errors."
       else
-         echo "Release build failed, check $BUILD_DIR/make.log for errors."
+         echo "$WSH Release build failed, check $BUILD_DIR/make.log for errors."
       fi
    fi
    cd ..
@@ -477,11 +484,12 @@ install_project () {
    USERID=$(id -u)
    if test "$USERID" = 0 ; then
       cd $BUILD_DIR
-      echo "Installing the $MIDI66 library..."
+      echo "$WSH Installing the $MIDI66 library and program(s)..."
       meson install
+      echo "$WSH Note: if the program cannot find shared libraries, run 'sudo ldconfig'."
       cd ..
    else
-      echo "UID $USERID. We want you as root to install the $MIDI66 library..."
+      echo "$WSH UID $USERID. We want you as root to install the $MIDI66 library..."
    fi
 }
 
@@ -498,7 +506,7 @@ install_project () {
 uninstall_project () {
    USERID=$(id -u)
    if test "$USERID" = 0 ; then
-      echo "Uninstalling the $MIDI66 library..."
+      echo "$WSH Uninstalling the $MIDI66 library..."
       ninja -C $BUILD_DIR uninstall
       if test "$PLATFORM" = "UNIX" ; then
          rm -rf "$INSTALL_PREFIX/include/$MIDI66_LIBRARY"
@@ -507,7 +515,7 @@ uninstall_project () {
 #        rm -rf "$INSTALL_PREFIX/man/man1/$MIDI66.1"
       fi
    else
-      echo "UID $USERID. We want you as root to uninstall the $MIDI66 library..."
+      echo "$WSH UID $USERID. We need root to uninstall the $MIDI66 library..."
    fi
 }
 
@@ -538,7 +546,7 @@ if test "$DOHELP" = "yes" ; then
 elif test "$DOOPTHELP" = "yes" ; then
 
 #  cat extras/help/options.help
-   echo "--option-help not yet supported."
+   echo "$WSH --option-help not yet supported."
    exit 0
 
 fi
@@ -593,11 +601,11 @@ MOPTS="--buildtype=$BUILD_TYPE $POTEXTDEF $BUILD_DIR"
 
 if test "$DOSETUP" = "yes"; then
    if test "$DODEBUG" = "yes" ; then
+      echo "$WSH meson setup --default-library=static $MOPTS for debugging"
       meson setup --default-library=static $MOPTS
-      echo "... for debugging"
    else
+      echo "$WSH meson setup $MOPTS ... for $BUILD_TYPE"
       meson setup $MOPTS
-      echo "... for release"
    fi
    exit 0
 fi
@@ -615,20 +623,22 @@ if test "$DOCROSS" = "yes" ; then
 
    CROSSOPTS="-Dpotext=false"
    CROSSFILE="--cross-file meson.mingw.cross"
+   echo "$WSH meson setup $BUILD_DIR --buildtype=$BUILD_TYPE $CROSSOPTS $CROSSFILE"
    meson setup $BUILD_DIR --buildtype=$BUILD_TYPE $CROSSOPTS $CROSSFILE
    if test $? = 0 ; then
       meson compile -C $BUILD_DIR > $MAKELOG
       if test $? = 0 ; then
-         echo "Cross-build in $BUILD_DIR succeeded."
+         echo "$WSH Cross-build in $BUILD_DIR succeeded."
          exit 0
       else
-         echo "Cross-build failed, check $MAKELOG for errors."
+         echo "$WSH Cross-build failed, check $MAKELOG for errors."
          exit 1
       fi
    fi
 fi
 
 if test "$DONSIS" = "yes" ; then
+   echo "$WSH meson compile -C $BUILD_DIR nsisinstaller"
    meson compile -C $BUILD_DIR nsisinstaller
    exit 0
 fi
