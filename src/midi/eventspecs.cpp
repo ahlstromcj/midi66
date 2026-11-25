@@ -26,7 +26,7 @@
  * \library       midi66 application
  * \author        Chris Ahlstrom
  * \date          2026-10-20
- * \updates       2026-11-22
+ * \updates       2026-11-25
  * \license       GNU GPLv2 or above
  *
  * std::string status_abbreviations (int m) uses these abbreviations:
@@ -89,6 +89,11 @@ bool
 spec_fancy ()
 {
     return s_spec_style_is_fancy;
+}
+
+std::string spec_mode ()
+{
+    return spec_fancy() ? std::string("fancy") : std::string("plain") ;
 }
 
 /**

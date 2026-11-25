@@ -35,6 +35,7 @@
 #include <vector>                       /* std::vector template class       */
 
 #include "mftranscript.hpp"             /* configuration and options        */
+#include "cfg/options.hpp"              /* cfg::options class               */
 #include "midi/eventspecs.hpp"          /* midi:: spec conversion functions */
 #include "midi/file.hpp"                /* midi::file class                 */
 #include "midi/song.hpp"                /* midi::song class                 */
@@ -186,6 +187,13 @@ main (int argc, char * argv [])
         bool can_run { ! show_info };
         if (can_run)
         {
+            cfg::options & optset { clip.option_set() };
+            bool use_plain { optset.boolean_value("plain") };
+            if (! use_plain)
+                use_plain = ! optset.boolean_value("fancy");
+
+            midi::set_spec_fancy(! use_plain);
+            util::status_message("Transcript mode", midi::spec_mode());
             if (clip.verbose_request())
             {
                 std::cout << "Verbose operation" << std::endl;
@@ -209,7 +217,6 @@ main (int argc, char * argv [])
             }
             if (success)
             {
-                cfg::options & optset { clip.option_set() };
                 if (argc > 1)
                 {
                     /*

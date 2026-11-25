@@ -238,8 +238,6 @@ transcript::write (bool eventsonly)
         lib66::tokenization trkevents { midi_track_to_lines(*trk) };
         for (const auto & line : trkevents)
             all_lines.push_back(line);
-
-        all_lines.push_back("\n");
     }
     all_lines.push_back("# vim: ft=sh\n");
 
@@ -313,7 +311,6 @@ write_midi_transcript (const std::string & transcriptfile, const song & s)
 }
 
 #if defined USE_SUPPLEMENTAL_QRPNFRAME_CODE
-
 
     midimacros m_macro_events;
 

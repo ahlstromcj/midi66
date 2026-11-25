@@ -27,7 +27,7 @@
  * \library       midi66 library
  * \author        Chris Ahlstrom
  * \date          2026-10-21
- * \updates       2026-11-19
+ * \updates       2026-11-25
  * \license       GNU GPLv2 or above
  *
  */
@@ -130,6 +130,7 @@ extern std::string meta_to_string (const midi::event & ev);
 
 extern void set_spec_fancy (bool fancy);
 extern bool spec_fancy ();
+extern std::string spec_mode ();
 
 extern int meta_type (const std::string & metaname);
 extern std::string meta_format_ex (int metatype);

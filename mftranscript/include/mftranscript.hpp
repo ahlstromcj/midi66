@@ -26,7 +26,7 @@
  * \library       midi66
  * \author        Chris Ahlstrom
  * \date          2026-11-11
- * \updates       2026-11-21
+ * \updates       2026-11-25
  * \license       See above.
  *
  */
@@ -82,8 +82,8 @@ cfg::options::container s_app_options   /* std::map<string, spec>           */
     /*
      *  Name
      *      Code,  Kind, Enabled,
-     *      Default, Value, FromCli, Dirty,
-     *      Description, Built-in
+     *      Default, Value, FromCli, Dirty (modified),
+     *      Description, Built-in (global)
      */
 
     {
@@ -102,6 +102,28 @@ cfg::options::container s_app_options   /* std::map<string, spec>           */
             "", "", false, false,
             "Specifies the file name for output. If desired, the path "
             "should be included.",
+            false
+        }
+    },
+    {
+        "plain",
+        {
+            cfg::options::code_null, cfg::options::kind::boolean,
+            cfg::options::enabled,
+            "false", "false", false, false,
+            "Specifies to use the original plain (i.e. mostly numeric) "
+            "format when creating a transcript.",
+            false
+        }
+    },
+    {
+        "fancy",
+        {
+            cfg::options::code_null, cfg::options::kind::boolean,
+            cfg::options::enabled,
+            "true", "true", false, false,
+            "Specifies to use the new fancy (i.e. less numeric) "
+            "format when creating a transcript. This is the default.",
             false
         }
     },
