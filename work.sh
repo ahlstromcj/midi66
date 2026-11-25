@@ -8,7 +8,7 @@
 # \library        midi66
 # \author         Chris Ahlstrom
 # \date           2024-02-06
-# \update         2026-11-24
+# \update         2026-11-25
 # \version        $Revision$
 # \license        $XPC_SUITE_GPL_LICENSE$
 #
@@ -34,7 +34,7 @@ LANG=C
 export LANG
 CYGWIN=binmode
 export CYGWIN
-export MIDI66_SCRIPT_EDIT_DATE="2026-11-24"
+export MIDI66_SCRIPT_EDIT_DATE="2026-11-25"
 export MIDI66_LIBRARY_API_VERSION="0.2"
 export MIDI66_LIBRARY_VERSION="$MIDI66_LIBRARY_API_VERSION.0"
 export MIDI66="midi66"
@@ -486,10 +486,17 @@ install_project () {
       cd $BUILD_DIR
       echo "$WSH Installing the $MIDI66 library and program(s)..."
       meson install
-      echo "$WSH Note: if the program cannot find shared libraries, run 'sudo ldconfig'."
+      echo
+      echo "$WSH Note: If a program cannot find the '66' shared libraries,"
+      echo "$WSH       run 'sudo ldconfig'. If that does not work, then"
+      echo "$WSH       follow the instructions in 'extras/ld/arch-libs66.conf'."
+      echo
       cd ..
    else
-      echo "$WSH UID $USERID. We want you as root to install the $MIDI66 library..."
+      echo
+      echo "$WSH UID $USERID. You need root to install the $MIDI66 library"
+      echo "$WSH and applications."
+      echo
    fi
 }
 
@@ -515,7 +522,10 @@ uninstall_project () {
 #        rm -rf "$INSTALL_PREFIX/man/man1/$MIDI66.1"
       fi
    else
-      echo "$WSH UID $USERID. We need root to uninstall the $MIDI66 library..."
+      echo
+      echo "$WSH UID $USERID. You need root to uninstall the $MIDI66 library"
+      echo "$WSH and applications."
+      echo
    fi
 }
 
